@@ -2,19 +2,22 @@
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>MedBot — Hệ Chuyên Gia Trợ Lý Y Tế AI</title>
   
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
 <div class="app-shell">
 
-  <aside class="sidebar">
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+  <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
       <div class="brand-icon">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -84,7 +87,7 @@
       </button>
       <div class="header-info">
         <div class="header-title">MedBot AI</div>
-        <div class="header-status"><span class="status-dot"></span> Đang trực tuyến, sẵn sàng tư vấn</div>
+        <div class="header-status"><span class="status-dot"></span> Online</div>
       </div>
       <div class="header-engine">
         <span class="engine-tag">Expert System</span>
@@ -120,7 +123,7 @@
         <textarea
           id="userInput"
           class="chat-input"
-          placeholder="Mô tả triệu chứng của bạn vào đây..."
+          placeholder="Mô tả triệu chứng của bạn..."
           rows="1"
           onkeydown="handleKey(event)"
           oninput="autoResize(this)"
@@ -138,10 +141,9 @@
 </div>
 
 <script>
-// ── Khởi tạo thời gian cho tin nhắn đầu tiên
+// Khởi tạo thời gian
 document.getElementById('welcome-time').innerText = now();
 
-// ── Helpers ──────────────────────────────────────────────
 function now() {
   return new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 }
@@ -153,13 +155,18 @@ function scrollBottom() {
 
 function autoResize(el) {
   el.style.height = "auto";
-  el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  el.style.height = Math.min(el.scrollHeight, 100) + "px"; // Giới hạn chiều cao trên mobile
 }
 
 function handleKey(e) {
+  // Trên mobile, phím Enter trên bàn phím ảo đôi khi chỉ có tác dụng xuống dòng.
+  // Ta vẫn giữ logic này cho Desktop.
   if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
+    // Chỉ chặn xuống dòng nếu không phải là thiết bị cảm ứng (tùy chọn)
+    if(window.innerWidth > 768) {
+        e.preventDefault();
+        sendMessage();
+    }
   }
 }
 
@@ -168,13 +175,18 @@ function insertHint(text) {
   input.value = text;
   input.focus();
   autoResize(input);
+  
+  // Tự động đóng sidebar trên mobile sau khi chọn gợi ý
+  if(window.innerWidth <= 768) {
+      toggleSidebar();
+  }
 }
 
 function toggleSidebar() {
-  document.querySelector(".sidebar").classList.toggle("sidebar-open");
+  document.getElementById("sidebar").classList.toggle("sidebar-open");
+  document.getElementById("sidebarOverlay").classList.toggle("show");
 }
 
-// ── Render markdown-lite ──────────────────────────────────
 function renderMarkdown(text) {
   text = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   text = text.replace(/_(.+?)_/g, "<em>$1</em>");
@@ -183,7 +195,6 @@ function renderMarkdown(text) {
   return text;
 }
 
-// ── Append message bubble ─────────────────────────────────
 function appendMessage(role, text) {
   const container = document.getElementById("messages");
   const row = document.createElement("div");
@@ -209,8 +220,6 @@ function appendMessage(role, text) {
   `;
 
   container.appendChild(row);
-  
-  // Animation hack để trigger mượt mà
   setTimeout(() => row.style.opacity = '1', 50);
   scrollBottom();
 }
@@ -219,25 +228,19 @@ function escapeHTML(str) {
   return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
 
-// ── Update sidebar panels ─────────────────────────────────
 function updateSidebar(symptoms, results) {
-  // Symptom tags
   if (symptoms && symptoms.length > 0) {
     const panel = document.getElementById("symptom-panel");
     const tags  = document.getElementById("symptom-tags");
     panel.style.display = "block";
-    tags.innerHTML = symptoms.map(s =>
-      `<span class="sym-tag">${s}</span>`
-    ).join("");
+    tags.innerHTML = symptoms.map(s => `<span class="sym-tag">${s}</span>`).join("");
   }
 
-  // Result cards
   if (results && results.length > 0) {
     const panel = document.getElementById("result-panel");
     const cards = document.getElementById("result-cards");
     panel.style.display = "block";
 
-    // Bảng màu cho mức độ nghiêm trọng phù hợp với Light Mode mới
     const severityColor = { low: "#10B981", medium: "#F59E0B", high: "#EF4444" };
     const severityLabel = { low: "Nhẹ", medium: "Trung bình", high: "Nghiêm trọng" };
     const severityBg    = { low: "#D1FAE5", medium: "#FEF3C7", high: "#FEE2E2" };
@@ -257,51 +260,41 @@ function updateSidebar(symptoms, results) {
           <div class="result-meta">
             <span class="conf-pct">${pct}%</span>
             <span class="sev-badge" style="color:${col}; background:${bg}">${slbl}</span>
-            ${r.see_doctor ? '<span class="doc-badge">🏥 Gặp bác sĩ</span>' : ''}
+            ${r.see_doctor ? '<span class="doc-badge">🏥 Bác sĩ</span>' : ''}
           </div>
         </div>`;
     }).join("");
   }
 }
 
-// ── Reset chat ────────────────────────────────────────────
 async function resetChat() {
-  try { await fetch("/api/reset", { method: "POST" }); } catch(e) { console.log('API Reset Mocked'); }
+  try { await fetch("/api/reset", { method: "POST" }); } catch(e) {}
 
-  // Clear UI
-  const msgs = document.getElementById("messages");
-  msgs.innerHTML = "";
-
+  document.getElementById("messages").innerHTML = "";
   document.getElementById("symptom-panel").style.display = "none";
   document.getElementById("result-panel").style.display  = "none";
 
-  appendMessage("bot",
-    "✅ **Đã làm mới phiên chẩn đoán.**\n\n" +
-    "Hệ thống đã sẵn sàng. Bạn hãy mô tả lại triệu chứng mới nhé!"
-  );
+  appendMessage("bot", "✅ **Đã làm mới phiên chẩn đoán.**\n\nBạn hãy mô tả lại triệu chứng mới nhé!");
+  
+  if(window.innerWidth <= 768) toggleSidebar(); // Đóng menu trên mobile
 }
 
-// ── Main send ─────────────────────────────────────────────
 async function sendMessage() {
   const input = document.getElementById("userInput");
   const text  = input.value.trim();
   if (!text) return;
 
-  // Disable UI
   input.value = "";
   input.style.height = "auto";
   document.getElementById("sendBtn").disabled = true;
 
   appendMessage("user", text);
 
-  // Show typing
   const typing = document.getElementById("typing");
   typing.style.display = "flex";
   scrollBottom();
 
   try {
-    // Gọi API thật ở đây. 
-    // Nếu bạn đang test không có backend, thay phần này bằng setTimeout mock data.
     const res  = await fetch("/api/chat", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
@@ -314,22 +307,22 @@ async function sendMessage() {
     updateSidebar(data.symptoms, data.results);
 
   } catch (err) {
-    // Mock response nếu không kết nối được server (dành cho việc test giao diện)
     setTimeout(() => {
         typing.style.display = "none";
-        appendMessage("bot", "Đây là phản hồi mẫu từ hệ thống do chưa kết nối được với Server (`/api/chat`). \n\n Dựa trên thông tin của bạn, có thể bạn đang có dấu hiệu của mệt mỏi thông thường. Vui lòng kiểm tra lại kết nối backend.");
+        appendMessage("bot", "Hệ thống đang hoạt động ở chế độ Demo (Offline). \n\n Có thể bạn đang có dấu hiệu mệt mỏi.");
         updateSidebar(["Sốt", "Đau đầu"], [
-            { name_vi: "Cảm cúm thông thường", confidence: 0.85, severity: "low", see_doctor: false },
-            { name_vi: "Sốt xuất huyết (Nguy cơ)", confidence: 0.45, severity: "high", see_doctor: true }
+            { name_vi: "Cảm cúm", confidence: 0.85, severity: "low", see_doctor: false },
+            { name_vi: "Sốt xuất huyết", confidence: 0.45, severity: "high", see_doctor: true }
         ]);
         document.getElementById("sendBtn").disabled = false;
-        input.focus();
-    }, 1500);
+        // Tránh tự động focus trên mobile để không làm nhảy bàn phím ảo
+        if(window.innerWidth > 768) input.focus(); 
+    }, 1200);
     return;
   }
 
   document.getElementById("sendBtn").disabled = false;
-  input.focus();
+  if(window.innerWidth > 768) input.focus();
 }
 </script>
 
