@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MedBot — Trợ lý Y tế AI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════
+     LAYOUT WRAPPER
+═══════════════════════════════════════════════════════ -->
+<div class="app-shell">
+
+  <!-- ── SIDEBAR ─────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="20" cy="20" r="19" stroke="var(--accent)" stroke-width="2"/>
+          <path d="M20 10v20M10 20h20" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-name">MedBot</div>
+        <div class="brand-sub">Trợ lý Y tế AI</div>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="section-label">Hệ thống</div>
+      <div class="system-badge">
+        <span class="badge-dot"></span>
+        <span>Rule-Based AI</span>
+      </div>
+      <div class="system-badge">
+        <span class="badge-dot badge-blue"></span>
+        <span>NLP: Keyword Match</span>
+      </div>
+      <div class="system-badge">
+        <span class="badge-dot badge-green"></span>
+        <span>Forward Chaining</span>
+      </div>
+    </div>
+
+    <div class="sidebar-section" id="symptom-panel" style="display:none">
+      <div class="section-label">Triệu chứng nhận diện</div>
+      <div id="symptom-tags" class="tag-list"></div>
+    </div>
+
+    <div class="sidebar-section" id="result-panel" style="display:none">
+      <div class="section-label">Kết quả chẩn đoán</div>
+      <div id="result-cards" class="result-list"></div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="section-label">Triệu chứng gợi ý</div>
+      <div class="hint-chips">
+        <span class="chip" onclick="insertHint('sốt và ho')">Sốt + Ho</span>
+        <span class="chip" onclick="insertHint('đau bụng buồn nôn')">Đau bụng</span>
+        <span class="chip" onclick="insertHint('đau họng sổ mũi')">Cảm lạnh</span>
+        <span class="chip" onclick="insertHint('mất vị giác và sốt')">COVID-like</span>
+        <span class="chip" onclick="insertHint('phát ban ngứa ngáy')">Dị ứng</span>
+        <span class="chip" onclick="insertHint('tiểu buốt tiểu nhiều')">UTI</span>
+        <span class="chip" onclick="insertHint('đau ngực khó thở')">Tim mạch</span>
+        <span class="chip" onclick="insertHint('vàng da mệt mỏi')">Viêm gan</span>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="btn-reset" onclick="resetChat()">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M2 8a6 6 0 1 0 1.2-3.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M2 4v4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Bắt đầu lại
+      </button>
+      <p class="disclaimer">
+        ⚕️ Chỉ mang tính tham khảo.<br/>Không thay thế ý kiến bác sĩ.
+      </p>
+    </div>
+  </aside>
+
+  <!-- ── MAIN CHAT AREA ───────────────────────────────── -->
+  <main class="chat-area">
+
+    <!-- Header -->
+    <header class="chat-header">
+      <button class="sidebar-toggle" onclick="toggleSidebar()">
+        <svg viewBox="0 0 20 20" fill="none"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+      <div class="header-info">
+        <div class="header-title">MedBot Chat</div>
+        <div class="header-status"><span class="status-dot"></span> Sẵn sàng tư vấn</div>
+      </div>
+      <div class="header-engine">
+        <span class="engine-tag">Expert System</span>
+      </div>
+    </header>
+
+    <!-- Messages -->
+    <div class="messages" id="messages">
+      <!-- Seeded with welcome bubble -->
+      <div class="msg-row bot-row">
+        <div class="avatar bot-avatar">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" stroke="var(--accent)" stroke-width="1.5"/><path d="M12 7v10M7 12h10" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/></svg>
+        </div>
+        <div class="bubble bot-bubble">
+          <p>Xin chào! Tôi là <strong>MedBot</strong> — trợ lý y tế AI.</p>
+          <p>Tôi có thể giúp bạn tham khảo sơ bộ về một số bệnh phổ biến dựa trên triệu chứng bạn mô tả.</p>
+          <p>📝 Hãy kể cho tôi nghe bạn đang có những triệu chứng gì? <em>Ví dụ: "Tôi bị sốt cao, đau đầu và mệt mỏi"</em></p>
+          <div class="bubble-time">vừa xong</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Typing indicator -->
+    <div class="typing-indicator" id="typing" style="display:none">
+      <div class="avatar bot-avatar">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" stroke="var(--accent)" stroke-width="1.5"/><path d="M12 7v10M7 12h10" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/></svg>
+      </div>
+      <div class="typing-dots">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+
+    <!-- Input bar -->
+    <div class="input-bar">
+      <div class="input-wrapper">
+        <textarea
+          id="userInput"
+          class="chat-input"
+          placeholder="Mô tả triệu chứng của bạn..."
+          rows="1"
+          onkeydown="handleKey(event)"
+          oninput="autoResize(this)"
+        ></textarea>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+          <svg viewBox="0 0 20 20" fill="none">
+            <path d="M3 10L17 3l-7 7 7 7-7-7z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="input-hint">Enter để gửi · Shift+Enter xuống dòng</div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     JAVASCRIPT
+═══════════════════════════════════════════════════════ -->
+<script>
+// ── Helpers ──────────────────────────────────────────────
+
+function now() {
+  return new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+}
+
+function scrollBottom() {
+  const el = document.getElementById("messages");
+  el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+}
+
+function autoResize(el) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 120) + "px";
+}
+
+function handleKey(e) {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function insertHint(text) {
+  const input = document.getElementById("userInput");
+  input.value = text;
+  input.focus();
+  autoResize(input);
+}
+
+function toggleSidebar() {
+  document.querySelector(".sidebar").classList.toggle("sidebar-open");
+}
+
+// ── Render markdown-lite ──────────────────────────────────
+function renderMarkdown(text) {
+  // Bold
+  text = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  // Italic
+  text = text.replace(/_(.+?)_/g, "<em>$1</em>");
+  // Horizontal rule
+  text = text.replace(/^---$/gm, "<hr/>");
+  // Line breaks
+  text = text.replace(/\n/g, "<br/>");
+  return text;
+}
+
+// ── Append message bubble ─────────────────────────────────
+function appendMessage(role, text) {
+  const container = document.getElementById("messages");
+  const row = document.createElement("div");
+  row.className = `msg-row ${role}-row`;
+
+  const avatarHTML = role === "bot"
+    ? `<div class="avatar bot-avatar">
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="11" stroke="var(--accent)" stroke-width="1.5"/>
+          <path d="M12 7v10M7 12h10" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+       </div>`
+    : `<div class="avatar user-avatar">
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="9" r="3" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+       </div>`;
+
+  const bubbleClass = role === "bot" ? "bot-bubble" : "user-bubble";
+  const rendered = role === "bot" ? renderMarkdown(text) : escapeHTML(text);
+
+  row.innerHTML = `
+    ${role === "bot" ? avatarHTML : ""}
+    <div class="bubble ${bubbleClass}">
+      ${rendered}
+      <div class="bubble-time">${now()}</div>
+    </div>
+    ${role === "user" ? avatarHTML : ""}
+  `;
+
+  container.appendChild(row);
+  scrollBottom();
+}
+
+function escapeHTML(str) {
+  return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+// ── Update sidebar panels ─────────────────────────────────
+function updateSidebar(symptoms, results) {
+  // Symptom tags
+  if (symptoms && symptoms.length > 0) {
+    const panel = document.getElementById("symptom-panel");
+    const tags  = document.getElementById("symptom-tags");
+    panel.style.display = "block";
+    tags.innerHTML = symptoms.map(s =>
+      `<span class="sym-tag">${s}</span>`
+    ).join("");
+  }
+
+  // Result cards
+  if (results && results.length > 0) {
+    const panel = document.getElementById("result-panel");
+    const cards = document.getElementById("result-cards");
+    panel.style.display = "block";
+
+    const severityColor = { low: "#27ae60", medium: "#e67e22", high: "#e74c3c" };
+    const severityLabel = { low: "Nhẹ", medium: "Trung bình", high: "Nghiêm trọng" };
+
+    cards.innerHTML = results.map((r, i) => {
+      const pct  = Math.round(r.confidence * 100);
+      const col  = severityColor[r.severity] || "#888";
+      const slbl = severityLabel[r.severity]  || r.severity;
+      return `
+        <div class="result-card ${i === 0 ? 'result-top' : ''}">
+          <div class="result-name">${r.name_vi}</div>
+          <div class="result-bar-wrap">
+            <div class="result-bar" style="width:${pct}%; background:${col}"></div>
+          </div>
+          <div class="result-meta">
+            <span class="conf-pct">${pct}%</span>
+            <span class="sev-badge" style="color:${col}">${slbl}</span>
+            ${r.see_doctor ? '<span class="doc-badge">🏥 Gặp bác sĩ</span>' : ''}
+          </div>
+        </div>`;
+    }).join("");
+  }
+}
+
+// ── Reset chat ────────────────────────────────────────────
+async function resetChat() {
+  await fetch("/api/reset", { method: "POST" });
+
+  // Clear UI
+  const msgs = document.getElementById("messages");
+  msgs.innerHTML = "";
+
+  document.getElementById("symptom-panel").style.display = "none";
+  document.getElementById("result-panel").style.display  = "none";
+
+  appendMessage("bot",
+    "✅ Đã làm mới hội thoại.\n\n" +
+    "Xin chào! Tôi là **MedBot**. Hãy mô tả triệu chứng của bạn nhé!"
+  );
+}
+
+// ── Main send ─────────────────────────────────────────────
+async function sendMessage() {
+  const input = document.getElementById("userInput");
+  const text  = input.value.trim();
+  if (!text) return;
+
+  // Disable UI
+  input.value = "";
+  input.style.height = "auto";
+  document.getElementById("sendBtn").disabled = true;
+
+  appendMessage("user", text);
+
+  // Show typing
+  const typing = document.getElementById("typing");
+  typing.style.display = "flex";
+  scrollBottom();
+
+  try {
+    const res  = await fetch("/api/chat", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ message: text }),
+    });
+    const data = await res.json();
+
+    typing.style.display = "none";
+    appendMessage("bot", data.reply);
+    updateSidebar(data.symptoms, data.results);
+
+  } catch (err) {
+    typing.style.display = "none";
+    appendMessage("bot", "⚠️ Lỗi kết nối. Vui lòng thử lại.");
+  }
+
+  document.getElementById("sendBtn").disabled = false;
+  input.focus();
+}
+</script>
+
+</body>
+</html>
