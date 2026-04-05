@@ -319,10 +319,6 @@ body.sidebar-active {
   transition: width .8s var(--ease);
 }
 
-.result-bar.bar-animate {
-  /* width is set inline, this class triggers transition */
-}
-
 .result-meta {
   display: flex;
   align-items: center;
