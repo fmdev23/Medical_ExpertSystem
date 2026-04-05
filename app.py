@@ -48,7 +48,7 @@ app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 # ─── MESSAGES ─────────────────────────────────────────────
 
 WELCOME_MESSAGE = (
-    "Xin chào! Tôi là **MedBot** — trợ lý y tế AI.\n\n"
+    "Xin chào! Tôi là **Y-AI** — trợ lý y tế AI.\n\n"
     "Tôi có thể giúp bạn tham khảo sơ bộ về một số bệnh phổ biến "
     "dựa trên triệu chứng bạn mô tả.\n\n"
     "📝 Hãy kể cho tôi nghe bạn đang có những triệu chứng gì?\n"
@@ -268,7 +268,7 @@ def chat():
             save_session(conv)
             return jsonify({
                 "reply": (
-                    "**Cách sử dụng MedBot:**\n\n"
+                    "**Cách sử dụng Y-AI:**\n\n"
                     "- Mô tả triệu chứng bạn đang gặp, ví dụ: _'sốt cao, đau đầu, mệt mỏi'_\n"
                     "- Cho biết triệu chứng bạn KHÔNG có: _'không ho, không sổ mũi'_\n"
                     "- Trả lời câu hỏi của tôi để tôi phân tích chính xác hơn\n"
@@ -402,7 +402,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
 
     print("=" * 55)
-    print("  MedBot v2.0 — Upgraded NLP + Inference Engine")
+    print("  Y-AI v2.0 — Upgraded NLP + Inference Engine")
     print(f"  PORT: {port}")
     print("=" * 55)
 

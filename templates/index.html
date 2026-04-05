@@ -2,327 +2,509 @@
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>MedBot — Hệ Chuyên Gia Trợ Lý Y Tế AI</title>
-  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>YAI — Chẩn Đoán Y Khoa</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  
-  <link rel="stylesheet" href="/static/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
 
 <div class="app-shell">
 
-  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+  <!-- Overlay for mobile sidebar -->
+  <div class="sidebar-overlay" id="sidebarOverlay" aria-hidden="true"></div>
 
-  <aside class="sidebar" id="sidebar">
+  <!-- ── Sidebar ─────────────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar" role="complementary" aria-label="Bảng chẩn đoán">
+
     <div class="sidebar-brand">
       <div class="brand-icon">
-        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path>
+        <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158
+               a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547
+               M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5
+               c1.26 1.26.367 3.414-1.415 3.414H4.828
+               c-1.782 0-2.674-2.154-1.414-3.414l5-5
+               A2 2 0 009 10.172V5L8 4z"/>
         </svg>
       </div>
-      <div>
-        <div class="brand-name">MedBot AI</div>
-        <div class="brand-sub">Hệ Chuyên Gia Chẩn Đoán</div>
+      <div class="brand-text">
+        <div class="brand-name">Y <span class="brand-ai-badge">AI</span></div>
+        <div class="brand-sub">Chẩn Đoán Y Khoa</div>
       </div>
     </div>
 
+    <!-- Engine badges -->
     <div class="sidebar-section">
       <div class="section-label">Thông tin hệ thống</div>
-      <div class="system-badge">
-        <span class="badge-dot"></span>
-        <span>Rule-Based AI Engine</span>
-      </div>
-      <div class="system-badge">
-        <span class="badge-dot badge-blue"></span>
-        <span>NLP Keyword Matching</span>
-      </div>
-      <div class="system-badge">
-        <span class="badge-dot badge-green"></span>
-        <span>Forward Chaining Model</span>
+      <div class="engine-list">
+        <div class="engine-item">
+          <span class="engine-dot dot-blue"></span>
+          <span class="engine-label">Rule-Based AI Engine</span>
+        </div>
+        <div class="engine-item">
+          <span class="engine-dot dot-cyan"></span>
+          <span class="engine-label">NLP Keyword Matching</span>
+        </div>
+        <div class="engine-item">
+          <span class="engine-dot dot-teal"></span>
+          <span class="engine-label">Forward Chaining Model</span>
+        </div>
       </div>
     </div>
 
-    <div class="sidebar-section" id="symptom-panel" style="display:none">
+    <!-- Symptom panel (dynamic) -->
+    <div class="sidebar-section" id="symptom-panel" style="display:none" aria-live="polite">
       <div class="section-label">Triệu chứng ghi nhận</div>
-      <div id="symptom-tags" class="tag-list"></div>
+      <div id="symptom-tags" class="tag-list" role="list"></div>
     </div>
 
-    <div class="sidebar-section" id="result-panel" style="display:none">
+    <!-- Result panel (dynamic) -->
+    <div class="sidebar-section" id="result-panel" style="display:none" aria-live="polite">
       <div class="section-label">Kết quả chẩn đoán sơ bộ</div>
-      <div id="result-cards" class="result-list"></div>
+      <div id="result-cards" class="result-list" role="list"></div>
     </div>
 
+    <!-- Quick hints -->
     <div class="sidebar-section">
       <div class="section-label">Gợi ý kiểm tra nhanh</div>
-      <div class="hint-chips">
-        <span class="chip" onclick="insertHint('Tôi bị sốt cao và ho khan')">Sốt + Ho</span>
-        <span class="chip" onclick="insertHint('Đau bụng từng cơn và buồn nôn')">Đau bụng</span>
-        <span class="chip" onclick="insertHint('Đau rát họng, sổ mũi nhiều')">Cảm lạnh</span>
-        <span class="chip" onclick="insertHint('Tức ngực, khó thở khi vận động')">Tim mạch</span>
-        <span class="chip" onclick="insertHint('Phát ban đỏ, ngứa ngáy khắp người')">Dị ứng da</span>
-        <span class="chip" onclick="insertHint('Vàng da, chán ăn, người mệt mỏi')">Viêm gan</span>
+      <div class="hint-chips" role="list">
+        <button class="chip" role="listitem" onclick="insertHint('Tôi bị sốt cao và ho khan')">
+          <span class="chip-icon">🌡️</span> Sốt + Ho
+        </button>
+        <button class="chip" role="listitem" onclick="insertHint('Đau bụng từng cơn và buồn nôn')">
+          <span class="chip-icon">🤢</span> Đau bụng
+        </button>
+        <button class="chip" role="listitem" onclick="insertHint('Đau rát họng, sổ mũi nhiều')">
+          <span class="chip-icon">🤧</span> Cảm lạnh
+        </button>
+        <button class="chip" role="listitem" onclick="insertHint('Tức ngực, khó thở khi vận động')">
+          <span class="chip-icon">💓</span> Tim mạch
+        </button>
+        <button class="chip" role="listitem" onclick="insertHint('Phát ban đỏ, ngứa ngáy khắp người')">
+          <span class="chip-icon">🔴</span> Dị ứng da
+        </button>
+        <button class="chip" role="listitem" onclick="insertHint('Vàng da, chán ăn, người mệt mỏi')">
+          <span class="chip-icon">⚠️</span> Viêm gan
+        </button>
       </div>
     </div>
 
     <div class="sidebar-footer">
-      <button class="btn-reset" onclick="resetChat()">
-        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+      <button class="btn-reset" onclick="resetChat()" aria-label="Làm mới phiên chẩn đoán">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9
+               m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
         Làm mới chẩn đoán
       </button>
       <p class="disclaimer">
-        ⚕️ Hệ thống chỉ mang tính chất tham khảo học thuật.<br/>Vui lòng thăm khám bác sĩ để có kết quả chính xác.
+        ⚕️ Chỉ mang tính chất tham khảo học thuật.<br/>
+        Vui lòng thăm khám bác sĩ để có kết quả chính xác.
       </p>
     </div>
+
   </aside>
 
-  <main class="chat-area">
+  <!-- ── Main chat ───────────────────────────────────────── -->
+  <main class="chat-area" role="main">
 
     <header class="chat-header">
-      <button class="sidebar-toggle" onclick="toggleSidebar()">
-        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+      <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Mở menu bên" aria-expanded="false" id="sidebarToggleBtn">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
       </button>
-      <div class="header-info">
-        <div class="header-title">MedBot AI</div>
-        <div class="header-status"><span class="status-dot"></span> Online</div>
+
+      <div class="header-brand">
+        <div class="header-icon" aria-hidden="true">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158
+                 a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547
+                 M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5
+                 c1.26 1.26.367 3.414-1.415 3.414H4.828
+                 c-1.782 0-2.674-2.154-1.414-3.414l5-5
+                 A2 2 0 009 10.172V5L8 4z"/>
+          </svg>
+        </div>
+        <div>
+          <div class="header-title">YAI</div>
+          <div class="header-status">
+            <span class="status-pulse" aria-hidden="true"></span>
+            <span>Đang hoạt động</span>
+          </div>
+        </div>
       </div>
-      <div class="header-engine">
-        <span class="engine-tag">Expert System</span>
+
+      <div class="header-meta">
+        <span class="engine-pill">Diagnostic System</span>
       </div>
     </header>
 
-    <div class="messages" id="messages">
-      <div class="msg-row bot-row">
-        <div class="avatar bot-avatar">
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+    <!-- Messages -->
+    <div class="messages" id="messages" role="log" aria-live="polite" aria-label="Cuộc hội thoại">
+      <div class="msg-row bot-row" role="article">
+        <div class="avatar bot-avatar" aria-hidden="true">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158
+                 a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547
+                 M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5
+                 c1.26 1.26.367 3.414-1.415 3.414H4.828
+                 c-1.782 0-2.674-2.154-1.414-3.414l5-5
+                 A2 2 0 009 10.172V5L8 4z"/>
+          </svg>
         </div>
         <div class="bubble bot-bubble">
-          <p>Xin chào! Tôi là <strong>MedBot</strong> — hệ chuyên gia trợ lý y tế AI.</p>
+          <p>Xin chào! Tôi là <strong>Y</strong> — hệ chuyên gia trợ lý y tế AI.</p>
           <p>Tôi có thể giúp bạn đối chiếu sơ bộ về một số bệnh lý phổ biến dựa trên tập luật suy diễn y khoa từ các triệu chứng bạn cung cấp.</p>
           <hr/>
-          <p>📝 Hãy mô tả chi tiết các triệu chứng bạn đang gặp phải nhé. <br/><em>Ví dụ: "Tôi bị sốt cao và ho khan"</em></p>
+          <p>📝 Hãy mô tả chi tiết các triệu chứng bạn đang gặp phải nhé.<br/>
+          <em>Ví dụ: "Tôi bị sốt cao và ho khan từ 2 ngày nay"</em></p>
           <div class="bubble-time" id="welcome-time"></div>
         </div>
       </div>
     </div>
 
-    <div class="typing-indicator" id="typing" style="display:none">
-      <div class="avatar bot-avatar">
-        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+    <!-- Typing indicator -->
+    <div class="typing-indicator" id="typing" style="display:none" role="status" aria-label="Đang phân tích triệu chứng">
+      <div class="avatar bot-avatar" aria-hidden="true">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158
+               a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547
+               M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5
+               c1.26 1.26.367 3.414-1.415 3.414H4.828
+               c-1.782 0-2.674-2.154-1.414-3.414l5-5
+               A2 2 0 009 10.172V5L8 4z"/>
+        </svg>
       </div>
-      <div class="typing-dots">
-        <span></span><span></span><span></span>
+      <div class="typing-bubble">
+        <span class="typing-label">Đang phân tích</span>
+        <div class="typing-dots" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
       </div>
     </div>
 
-    <div class="input-bar">
-      <div class="input-wrapper">
+    <!-- Input bar -->
+    <div class="input-bar" id="inputBar">
+      <div class="input-wrapper" id="inputWrapper">
         <textarea
           id="userInput"
           class="chat-input"
-          placeholder="Mô tả triệu chứng của bạn..."
+          placeholder="Mô tả triệu chứng của bạn…"
           rows="1"
+          autocomplete="off"
+          autocorrect="on"
+          autocapitalize="sentences"
+          spellcheck="true"
           onkeydown="handleKey(event)"
           oninput="autoResize(this)"
+          aria-label="Nhập triệu chứng"
         ></textarea>
-        <button class="send-btn" id="sendBtn" onclick="sendMessage()">
-          <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m0 0l-7 7m7-7l7 7"></path>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()" aria-label="Gửi tin nhắn">
+          <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m0 0l-7 7m7-7l7 7"/>
           </svg>
         </button>
       </div>
-      <div class="input-hint">Nhấn Enter để gửi · Shift + Enter để xuống dòng</div>
+      <div class="input-hint" aria-hidden="true">Enter để gửi · Shift + Enter xuống dòng</div>
     </div>
 
   </main>
 </div>
 
 <script>
-// Khởi tạo thời gian
-document.getElementById('welcome-time').innerText = now();
+/* ═══════════════════════════════════════════════════════
+   MedBot — Optimized JS for mobile + desktop
+═══════════════════════════════════════════════════════ */
 
-function now() {
-  return new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+// ── Init ────────────────────────────────────────────────
+document.getElementById('welcome-time').textContent = formatTime();
+
+document.querySelectorAll('.msg-row').forEach(row => {
+  requestAnimationFrame(() => requestAnimationFrame(() => row.classList.add('msg-visible')));
+});
+
+// Prevent iOS bounce/overscroll on non-scroll elements
+document.addEventListener('touchmove', function(e) {
+  if (!e.target.closest('.messages, .sidebar, .chat-input')) {
+    e.preventDefault();
+  }
+}, { passive: false });
+
+// ── Helpers ─────────────────────────────────────────────
+function formatTime() {
+  return new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 }
 
-function scrollBottom() {
-  const el = document.getElementById("messages");
-  el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+function escapeHTML(str) {
+  const map = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' };
+  return str.replace(/[&<>"']/g, c => map[c]);
 }
 
+function renderMarkdown(text) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/_(.+?)_/g, '<em>$1</em>')
+    .replace(/^---$/gm, '<hr/>')
+    .replace(/\n/g, '<br/>');
+}
+
+// ── Scroll ──────────────────────────────────────────────
+function scrollBottom(instant = false) {
+  const el = document.getElementById('messages');
+  if (instant) {
+    el.scrollTop = el.scrollHeight;
+  } else {
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }
+}
+
+// ── Auto-resize textarea ─────────────────────────────────
 function autoResize(el) {
-  el.style.height = "auto";
-  el.style.height = Math.min(el.scrollHeight, 100) + "px"; // Giới hạn chiều cao trên mobile
+  el.style.height = 'auto';
+  const max = window.innerWidth <= 768 ? 90 : 120;
+  el.style.height = Math.min(el.scrollHeight, max) + 'px';
 }
 
+// ── Key handler (desktop Enter to send) ─────────────────
 function handleKey(e) {
-  // Trên mobile, phím Enter trên bàn phím ảo đôi khi chỉ có tác dụng xuống dòng.
-  // Ta vẫn giữ logic này cho Desktop.
-  if (e.key === "Enter" && !e.shiftKey) {
-    // Chỉ chặn xuống dòng nếu không phải là thiết bị cảm ứng (tùy chọn)
-    if(window.innerWidth > 768) {
-        e.preventDefault();
-        sendMessage();
+  if (e.key === 'Enter' && !e.shiftKey) {
+    const isMobile = window.matchMedia('(pointer: coarse)').matches;
+    if (!isMobile) {
+      e.preventDefault();
+      sendMessage();
     }
   }
 }
 
+// ── Hint chips ──────────────────────────────────────────
 function insertHint(text) {
-  const input = document.getElementById("userInput");
+  const input = document.getElementById('userInput');
   input.value = text;
-  input.focus();
   autoResize(input);
-  
-  // Tự động đóng sidebar trên mobile sau khi chọn gợi ý
-  if(window.innerWidth <= 768) {
-      toggleSidebar();
-  }
+  input.focus();
+  // Close sidebar on mobile
+  if (sidebarOpen) closeSidebar();
 }
+
+// ── Sidebar ─────────────────────────────────────────────
+let sidebarOpen = false;
 
 function toggleSidebar() {
-  document.getElementById("sidebar").classList.toggle("sidebar-open");
-  document.getElementById("sidebarOverlay").classList.toggle("show");
+  sidebarOpen ? closeSidebar() : openSidebar();
 }
 
-function renderMarkdown(text) {
-  text = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  text = text.replace(/_(.+?)_/g, "<em>$1</em>");
-  text = text.replace(/^---$/gm, "<hr/>");
-  text = text.replace(/\n/g, "<br/>");
-  return text;
+function openSidebar() {
+  sidebarOpen = true;
+  document.getElementById('sidebar').classList.add('sidebar-open');
+  document.getElementById('sidebarOverlay').classList.add('show');
+  document.getElementById('sidebarToggleBtn').setAttribute('aria-expanded', 'true');
+  document.body.classList.add('sidebar-active');
+  // Trap scroll
+  document.getElementById('sidebar').focus();
 }
 
+function closeSidebar() {
+  sidebarOpen = false;
+  document.getElementById('sidebar').classList.remove('sidebar-open');
+  document.getElementById('sidebarOverlay').classList.remove('show');
+  document.getElementById('sidebarToggleBtn').setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('sidebar-active');
+}
+
+// Click overlay to close
+document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
+
+// Swipe-left to close sidebar
+(function () {
+  let startX = 0, startY = 0;
+  const sidebar = document.getElementById('sidebar');
+
+  sidebar.addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+
+  sidebar.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = Math.abs(e.changedTouches[0].clientY - startY);
+    if (dx < -60 && dy < 60) closeSidebar();
+  }, { passive: true });
+})();
+
+// ── Append message ───────────────────────────────────────
 function appendMessage(role, text) {
-  const container = document.getElementById("messages");
-  const row = document.createElement("div");
+  const container = document.getElementById('messages');
+
+  const botSVG = `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>`;
+  const userSVG = `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>`;
+
+  const row = document.createElement('div');
   row.className = `msg-row ${role}-row`;
+  row.setAttribute('role', 'article');
 
-  const botIcon = `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>`;
-  const userIcon = `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>`;
-
-  const avatarHTML = role === "bot"
-    ? `<div class="avatar bot-avatar">${botIcon}</div>`
-    : `<div class="avatar user-avatar">${userIcon}</div>`;
-
-  const bubbleClass = role === "bot" ? "bot-bubble" : "user-bubble";
-  const rendered = role === "bot" ? renderMarkdown(text) : escapeHTML(text);
+  const avatarEl = `<div class="avatar ${role}-avatar" aria-hidden="true">${role === 'bot' ? botSVG : userSVG}</div>`;
+  const bubbleClass = role === 'bot' ? 'bot-bubble' : 'user-bubble';
+  const content = role === 'bot' ? renderMarkdown(text) : escapeHTML(text);
 
   row.innerHTML = `
-    ${role === "bot" ? avatarHTML : ""}
+    ${role === 'bot' ? avatarEl : ''}
     <div class="bubble ${bubbleClass}">
-      ${rendered}
-      <div class="bubble-time">${now()}</div>
+      ${content}
+      <div class="bubble-time">${formatTime()}</div>
     </div>
-    ${role === "user" ? avatarHTML : ""}
+    ${role === 'user' ? avatarEl : ''}
   `;
 
   container.appendChild(row);
-  setTimeout(() => row.style.opacity = '1', 50);
+
+  // Trigger animation
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => row.classList.add('msg-visible'));
+  });
+
   scrollBottom();
 }
 
-function escapeHTML(str) {
-  return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-}
+// ── Sidebar panels ───────────────────────────────────────
+const SEVERITY = {
+  low:    { color: '#22C55E', bg: '#DCFCE7', label: 'Nhẹ' },
+  medium: { color: '#F59E0B', bg: '#FEF3C7', label: 'Trung bình' },
+  high:   { color: '#F43F5E', bg: '#FFE4E6', label: 'Nghiêm trọng' },
+};
 
 function updateSidebar(symptoms, results) {
-  if (symptoms && symptoms.length > 0) {
-    const panel = document.getElementById("symptom-panel");
-    const tags  = document.getElementById("symptom-tags");
-    panel.style.display = "block";
-    tags.innerHTML = symptoms.map(s => `<span class="sym-tag">${s}</span>`).join("");
+  if (Array.isArray(symptoms) && symptoms.length) {
+    const panel = document.getElementById('symptom-panel');
+    const tags  = document.getElementById('symptom-tags');
+    panel.style.display = 'block';
+    tags.innerHTML = symptoms.map(s =>
+      `<span class="sym-tag" role="listitem">${escapeHTML(s)}</span>`
+    ).join('');
   }
 
-  if (results && results.length > 0) {
-    const panel = document.getElementById("result-panel");
-    const cards = document.getElementById("result-cards");
-    panel.style.display = "block";
-
-    const severityColor = { low: "#10B981", medium: "#F59E0B", high: "#EF4444" };
-    const severityLabel = { low: "Nhẹ", medium: "Trung bình", high: "Nghiêm trọng" };
-    const severityBg    = { low: "#D1FAE5", medium: "#FEF3C7", high: "#FEE2E2" };
+  if (Array.isArray(results) && results.length) {
+    const panel = document.getElementById('result-panel');
+    const cards = document.getElementById('result-cards');
+    panel.style.display = 'block';
 
     cards.innerHTML = results.map((r, i) => {
-      const pct  = Math.round(r.confidence * 100);
-      const col  = severityColor[r.severity] || "#94A3B8";
-      const bg   = severityBg[r.severity] || "#F1F5F9";
-      const slbl = severityLabel[r.severity]  || r.severity;
-      
+      const pct  = Math.round((r.confidence || 0) * 100);
+      const sev  = SEVERITY[r.severity] || { color: '#94A3B8', bg: '#F1F5F9', label: r.severity };
       return `
-        <div class="result-card ${i === 0 ? 'result-top' : ''}">
-          <div class="result-name">${r.name_vi}</div>
-          <div class="result-bar-wrap">
-            <div class="result-bar" style="width:${pct}%; background:${col}"></div>
+        <div class="result-card ${i === 0 ? 'result-top' : ''}" role="listitem">
+          <div class="result-header">
+            <span class="result-name">${escapeHTML(r.name_vi || '')}</span>
+            ${i === 0 ? '<span class="result-crown" aria-label="Khả năng cao nhất">👑</span>' : ''}
+          </div>
+          <div class="result-bar-wrap" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="${pct}% khả năng">
+            <div class="result-bar" style="width:${pct}%; background:${sev.color}"></div>
           </div>
           <div class="result-meta">
-            <span class="conf-pct">${pct}%</span>
-            <span class="sev-badge" style="color:${col}; background:${bg}">${slbl}</span>
-            ${r.see_doctor ? '<span class="doc-badge">🏥 Bác sĩ</span>' : ''}
+            <span class="conf-pct" style="color:${sev.color}">${pct}%</span>
+            <span class="sev-badge" style="color:${sev.color}; background:${sev.bg}">${sev.label}</span>
+            ${r.see_doctor ? '<span class="doc-badge">🏥 Cần bác sĩ</span>' : ''}
           </div>
         </div>`;
-    }).join("");
+    }).join('');
+
+    // Animate bars after render
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.result-bar').forEach(b => b.classList.add('bar-animate'));
+    });
   }
 }
 
+// ── Reset chat ───────────────────────────────────────────
 async function resetChat() {
-  try { await fetch("/api/reset", { method: "POST" }); } catch(e) {}
+  try { await fetch('/api/reset', { method: 'POST' }); } catch (_) {}
 
-  document.getElementById("messages").innerHTML = "";
-  document.getElementById("symptom-panel").style.display = "none";
-  document.getElementById("result-panel").style.display  = "none";
+  document.getElementById('messages').innerHTML = '';
+  document.getElementById('symptom-panel').style.display = 'none';
+  document.getElementById('result-panel').style.display  = 'none';
 
-  appendMessage("bot", "✅ **Đã làm mới phiên chẩn đoán.**\n\nBạn hãy mô tả lại triệu chứng mới nhé!");
-  
-  if(window.innerWidth <= 768) toggleSidebar(); // Đóng menu trên mobile
+  appendMessage('bot', '✅ **Đã làm mới phiên chẩn đoán.**\n\nBạn hãy mô tả lại triệu chứng mới nhé!');
+
+  if (sidebarOpen) closeSidebar();
 }
 
+// ── Send message ─────────────────────────────────────────
 async function sendMessage() {
-  const input = document.getElementById("userInput");
-  const text  = input.value.trim();
-  if (!text) return;
+  const input   = document.getElementById('userInput');
+  const sendBtn = document.getElementById('sendBtn');
+  const text    = input.value.trim();
+  if (!text || sendBtn.disabled) return;
 
-  input.value = "";
-  input.style.height = "auto";
-  document.getElementById("sendBtn").disabled = true;
+  // Clear input
+  input.value = '';
+  input.style.height = 'auto';
+  sendBtn.disabled = true;
+  sendBtn.setAttribute('aria-busy', 'true');
 
-  appendMessage("user", text);
+  appendMessage('user', text);
 
-  const typing = document.getElementById("typing");
-  typing.style.display = "flex";
+  // Show typing
+  const typing = document.getElementById('typing');
+  typing.style.display = 'flex';
   scrollBottom();
 
   try {
-    const res  = await fetch("/api/chat", {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
+    const res  = await fetch('/api/chat', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ message: text }),
     });
+
+    if (!res.ok) throw new Error('Network error');
     const data = await res.json();
 
-    typing.style.display = "none";
-    appendMessage("bot", data.reply);
+    typing.style.display = 'none';
+    appendMessage('bot', data.reply);
     updateSidebar(data.symptoms, data.results);
 
-  } catch (err) {
-    setTimeout(() => {
-        typing.style.display = "none";
-        appendMessage("bot", "Hệ thống đang hoạt động ở chế độ Demo (Offline). \n\n Có thể bạn đang có dấu hiệu mệt mỏi.");
-        updateSidebar(["Sốt", "Đau đầu"], [
-            { name_vi: "Cảm cúm", confidence: 0.85, severity: "low", see_doctor: false },
-            { name_vi: "Sốt xuất huyết", confidence: 0.45, severity: "high", see_doctor: true }
-        ]);
-        document.getElementById("sendBtn").disabled = false;
-        // Tránh tự động focus trên mobile để không làm nhảy bàn phím ảo
-        if(window.innerWidth > 768) input.focus(); 
-    }, 1200);
-    return;
+  } catch (_) {
+    // Demo / offline fallback
+    await new Promise(r => setTimeout(r, 1100));
+    typing.style.display = 'none';
+    appendMessage('bot', '⚠️ Hệ thống đang hoạt động ở **chế độ Demo** (Offline).\n\nKết quả bên dưới là ví dụ minh họa.');
+    updateSidebar(
+      ['Sốt', 'Đau đầu', 'Mệt mỏi'],
+      [
+        { name_vi: 'Cảm cúm',       confidence: 0.85, severity: 'low',    see_doctor: false },
+        { name_vi: 'Sốt xuất huyết', confidence: 0.45, severity: 'high',   see_doctor: true  },
+        { name_vi: 'COVID-19',       confidence: 0.30, severity: 'medium', see_doctor: true  },
+      ]
+    );
   }
 
-  document.getElementById("sendBtn").disabled = false;
-  if(window.innerWidth > 768) input.focus();
+  sendBtn.disabled = false;
+  sendBtn.removeAttribute('aria-busy');
+
+  // Only focus on desktop (prevent virtual keyboard pop on mobile)
+  if (!window.matchMedia('(pointer: coarse)').matches) {
+    input.focus();
+  }
+}
+
+// ── Handle input focus on iOS — scroll adjust ────────────
+if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+  const input = document.getElementById('userInput');
+  input.addEventListener('focus', () => {
+    setTimeout(() => scrollBottom(true), 400);
+  });
 }
 </script>
 
