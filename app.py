@@ -33,13 +33,15 @@ import os
 import secrets
 from datetime import datetime
 
-from nlp    import (
-    extract_symptoms_with_context,
+from nlp import (
+    extract_symptoms_hybrid,          # ← NEW: hybrid extraction
+    extract_symptoms_with_context,    # kept for backward compat
     symptoms_to_vietnamese,
     normalize_text,
     describe_negations,
 )
 from engine import run_inference, build_response_text
+from llm    import call_llm_diagnosis 
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
@@ -232,116 +234,135 @@ def chat():
     try:
         data    = request.get_json(silent=True) or {}
         message = data.get("message", "").strip()
-
+ 
         if not message:
             return jsonify({
                 "reply": "Bạn chưa nhập gì cả. Hãy mô tả triệu chứng của bạn.",
                 "symptoms": [], "results": []
             })
-
+ 
         conv = get_session_data()
         conv["turn_count"] += 1
-
+ 
         intent = detect_intent(message)
-
+ 
         # ── GREETING ──────────────────────────────────────
         if intent == "greeting" and conv["turn_count"] == 1:
             save_session(conv)
             return jsonify({
-                "reply":   WELCOME_MESSAGE,
+                "reply":    WELCOME_MESSAGE,
                 "symptoms": [], "results": [],
-                "intent":  intent,
-                "turn":    conv["turn_count"],
+                "intent":   intent,
+                "turn":     conv["turn_count"],
             })
-
+ 
         # ── RESET ─────────────────────────────────────────
         if intent == "reset":
             session.pop("conv", None)
             return jsonify({
-                "reply":   "Đã làm mới cuộc trò chuyện.\n\n" + WELCOME_MESSAGE,
+                "reply":    "Đã làm mới cuộc trò chuyện.\\n\\n" + WELCOME_MESSAGE,
                 "symptoms": [], "results": [],
-                "intent":  "reset", "turn": 0,
+                "intent":   "reset", "turn": 0,
             })
-
+ 
         # ── HELP ──────────────────────────────────────────
         if intent == "help":
             save_session(conv)
             return jsonify({
                 "reply": (
-                    "**Cách sử dụng Y-AI:**\n\n"
-                    "- Mô tả triệu chứng bạn đang gặp, ví dụ: _'sốt cao, đau đầu, mệt mỏi'_\n"
-                    "- Cho biết triệu chứng bạn KHÔNG có: _'không ho, không sổ mũi'_\n"
-                    "- Trả lời câu hỏi của tôi để tôi phân tích chính xác hơn\n"
+                    "**Cách sử dụng Y-AI:**\\n\\n"
+                    "- Mô tả triệu chứng bạn đang gặp\\n"
+                    "- Cho biết triệu chứng bạn KHÔNG có\\n"
+                    "- Trả lời câu hỏi của tôi để phân tích chính xác hơn\\n"
                     "- Gõ **reset** để bắt đầu lại từ đầu"
                 ),
                 "symptoms": [], "results": [],
-                "intent":  "help", "turn": conv["turn_count"],
+                "intent":   "help", "turn": conv["turn_count"],
             })
-
-        # ── NLP: Trích xuất triệu chứng ───────────────────
-        nlp_result = extract_symptoms_with_context(message)
+ 
+        # ════════════════════════════════════════════════
+        #  STEP 1: HYBRID NLP EXTRACTION
+        #  → Try LLM first, fall back to rule-based
+        # ════════════════════════════════════════════════
+        nlp_result = extract_symptoms_hybrid(message)   # ← CHANGED (was extract_symptoms_with_context)
         _merge_nlp_into_session(conv, nlp_result)
-
+ 
         confirmed = conv["confirmed_symptoms"]
         denied    = conv["denied_symptoms"]
         intens    = conv["intensities"]
         mentions  = conv["mention_counts"]
-
-        # ── Kiểm tra nếu không có triệu chứng nào ─────────
+ 
+        # ── No symptoms found ─────────────────────────────
         if not confirmed:
             clarify = (
-                "Tôi chưa nhận được triệu chứng cụ thể từ mô tả của bạn.\n\n"
-                "Hãy thử nêu rõ hơn, ví dụ:\n"
-                "- _'Tôi đang bị sốt, ho và mệt mỏi'_\n"
-                "- _'Tôi đau bụng và buồn nôn'_\n"
+                "Tôi chưa nhận được triệu chứng cụ thể từ mô tả của bạn.\\n\\n"
+                "Hãy thử nêu rõ hơn, ví dụ:\\n"
+                "- _'Tôi đang bị sốt, ho và mệt mỏi'_\\n"
+                "- _'Tôi đau bụng và buồn nôn'_\\n"
                 "- _'Tôi không sốt nhưng bị sổ mũi và hắt hơi'_"
             )
             if denied:
                 dn_display = symptoms_to_vietnamese(denied)
-                clarify += f"\n\n_(Đã ghi nhận bạn không có: {', '.join(dn_display)})_"
+                clarify += f"\\n\\n_(Đã ghi nhận bạn không có: {', '.join(dn_display)})_"
             save_session(conv)
             return jsonify({
-                "reply":   clarify,
+                "reply":    clarify,
                 "symptoms": [], "results": [],
-                "intent":  "symptom", "turn": conv["turn_count"],
+                "intent":   "symptom", "turn": conv["turn_count"],
             })
-
-        # ── INFERENCE ─────────────────────────────────────
+ 
+        # ════════════════════════════════════════════════
+        #  STEP 2: RULE ENGINE
+        # ════════════════════════════════════════════════
         inference = run_inference(
             symptoms        = confirmed,
             denied_symptoms = denied,
             intensities     = intens,
             mention_counts  = mentions,
         )
-
-        # ── Cập nhật uncertain_turns ───────────────────────
+ 
+        # ════════════════════════════════════════════════
+        #  STEP 3: LLM FALLBACK DIAGNOSIS
+        #  → Only when rule engine returns zero results
+        # ════════════════════════════════════════════════
+        llm_fallback = False
+        if inference.get("needs_llm"):
+            llm_result = call_llm_diagnosis(confirmed)
+            if llm_result and llm_result.get("results"):
+                # Graft LLM results into the inference dict so the
+                # rest of the response pipeline works unchanged
+                inference["results"]   = llm_result["results"]
+                inference["uncertain"] = len(llm_result["results"]) >= 2
+                inference["needs_llm"] = False
+                llm_fallback = True
+ 
+        # ── Uncertain turns counter ───────────────────────
         if inference["uncertain"]:
             conv["uncertain_turns"] = conv.get("uncertain_turns", 0) + 1
         else:
             conv["uncertain_turns"] = 0
-
-        # ── Tạo display data ───────────────────────────────
+ 
+        # ── Display data ──────────────────────────────────
         sym_display    = symptoms_to_vietnamese(confirmed)
         denied_display = symptoms_to_vietnamese(denied) if denied else None
-
-        # ── Build response text ────────────────────────────
+ 
+        # ── Build response ────────────────────────────────
         main_reply = build_response_text(
             inference_result = inference,
             symptoms         = confirmed,
             symptom_display  = sym_display,
             denied_display   = denied_display,
+            llm_fallback     = llm_fallback,   # ← NEW kwarg
         )
-
-        # ── Smart Follow-up Question ───────────────────────
+ 
+        # ── Smart follow-up question ──────────────────────
         followup = pick_followup_question(conv, inference)
         if followup:
             main_reply += f"\n\n---\n💬 **Câu hỏi thêm:** {followup}"
-
-        # ── Lưu bệnh được chẩn đoán gần nhất ─────────────
+ 
         conv["last_diseases"] = [r["disease"] for r in inference["results"]]
         save_session(conv)
-
-        # ── Chuẩn bị kết quả cho frontend ─────────────────
+ 
         result_summary = [
             {
                 "name_vi":    r["name_vi"],
@@ -351,17 +372,18 @@ def chat():
             }
             for r in inference["results"]
         ]
-
+ 
         return jsonify({
-            "reply":     main_reply,
-            "symptoms":  sym_display,
-            "denied":    denied_display or [],
-            "results":   result_summary,
-            "uncertain": inference["uncertain"],
-            "intent":    "symptom",
-            "turn":      conv["turn_count"],
+            "reply":        main_reply,
+            "symptoms":     sym_display,
+            "denied":       denied_display or [],
+            "results":      result_summary,
+            "uncertain":    inference["uncertain"],
+            "llm_fallback": llm_fallback,   # expose to frontend if needed
+            "intent":       "symptom",
+            "turn":         conv["turn_count"],
         })
-
+ 
     except Exception as e:
         import traceback
         return jsonify({

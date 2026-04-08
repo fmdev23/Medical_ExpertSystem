@@ -1,33 +1,22 @@
 """
 =============================================================
-  INFERENCE ENGINE v2.0 — Medical Chatbot
+  INFERENCE ENGINE v2.1 — Medical Chatbot  (HYBRID UPGRADE)
 =============================================================
-  Triển khai: Forward Chaining nâng cấp
+  Changes from v2.0:
 
-  Nâng cấp so với v1:
+  [+] SOFT MATCHING in _check_rule()
+      → if_all no longer requires 100% of mandatory symptoms
+      → A SOFT_MATCH_THRESHOLD (default 0.70) allows partial
+        matches — e.g. 2 of 3 if_all symptoms still triggers
+        the rule, with a confidence penalty applied
+      → Hard-exclude on if_none and denied still enforced
 
-  [1] DENIED SYMPTOMS INTEGRATION
-      → Nếu user nói "không sốt" → loại trừ bệnh cần sốt
-      → Hard-exclude nếu denied symptom nằm trong if_all
+  [+] needs_llm FLAG in run_inference()
+      → When the engine finds zero results after all rules are
+        evaluated, it sets "needs_llm": True in its return dict
+      → app.py uses this flag to call call_llm_diagnosis()
 
-  [2] WEIGHTED CONFIDENCE SCORING
-      → Triệu chứng nhiều = confidence cao hơn (symptom_bonus)
-      → Intensity modifier từ NLP ảnh hưởng score
-      → if_all có trọng số cao hơn if_any
-
-  [3] DIFFERENTIAL DIAGNOSIS PENALTY
-      → Nếu bệnh A và B có score gần nhau, nhưng B có
-        nhiều triệu chứng phân biệt hơn → A bị penalize
-
-  [4] MULTI-TURN SYMPTOM WEIGHTING
-      → Triệu chứng được đề cập nhiều lần = weight cao hơn
-      → Dựa trên mention_counts từ session
-
-  [5] UNCERTAINTY DETECTION
-      → Khi top-2 confidence gần nhau → flag "uncertain"
-      → Gợi ý follow-up question phù hợp
-
-  Đây là Expert System thuần túy — không ML/DL.
+  Everything else is the original engine.py v2.0 verbatim.
 =============================================================
 """
 
@@ -36,24 +25,22 @@ from rules import get_all_rules
 
 # ─── THRESHOLDS & PARAMS ──────────────────────────────────
 
-# Ngưỡng tối thiểu để xuất hiện trong kết quả
 CONFIDENCE_THRESHOLD = 0.38
+UNCERTAINTY_GAP      = 0.12
+MAX_RESULTS          = 3
+SYMPTOM_COUNT_BONUS  = 0.08
+MAX_BONUS            = 0.15
+INTENSITY_WEIGHT     = 0.06
 
-# Khi 2 kết quả đầu chênh nhau ít hơn mức này → "uncertain"
-UNCERTAINTY_GAP = 0.12
-
-# Số kết quả tối đa
-MAX_RESULTS = 3
-
-# Bonus tối đa khi có nhiều triệu chứng khớp
-SYMPTOM_COUNT_BONUS = 0.08   # mỗi if_any khớp thêm = +bonus
-MAX_BONUS           = 0.15
-
-# Hệ số khi intensity > 1.0 (triệu chứng nặng)
-INTENSITY_WEIGHT    = 0.06
+# ── NEW v2.1 ──────────────────────────────────────────────
+# Fraction of if_all symptoms that must be present for a soft match.
+# 1.0 = strict (original behaviour), 0.6 = up to 40% can be missing.
+# Missing if_all symptoms are penalised via SOFT_MISS_PENALTY per gap.
+SOFT_MATCH_THRESHOLD = 0.70   # ≥70% of if_all must be present
+SOFT_MISS_PENALTY    = 0.08   # confidence reduction per missing if_all symptom
 
 
-# ─── RULE CHECKER ─────────────────────────────────────────
+# ─── RULE CHECKER (v2.1 — soft if_all matching) ───────────
 
 def _check_rule(
     rule:            Dict,
@@ -63,82 +50,64 @@ def _check_rule(
     mention_counts:  Dict[str, int],
 ) -> Optional[Dict]:
     """
-    Kiểm tra một rule so với working memory.
+    Forward Chaining rule checker with soft if_all matching.
 
-    Logic Forward Chaining v2:
-      1. if_none  → hard reject
-      2. denied   → reject nếu if_all bị denied
-      3. if_all   → tất cả phải có
-      4. if_any   → ít nhất 1
-      5. Tính weighted confidence
+    Soft matching changes (v2.1):
+      - If ≥ SOFT_MATCH_THRESHOLD fraction of if_all are present
+        → rule fires but confidence is reduced by SOFT_MISS_PENALTY
+          for each missing if_all symptom
+      - If < SOFT_MATCH_THRESHOLD of if_all are present → still reject
+      - Hard rules (if_none, denied blocking) are unchanged
 
-    Args:
-        rule:            Rule dict từ Knowledge Base
-        symptoms:        Triệu chứng được xác nhận
-        denied_symptoms: Triệu chứng user nói KHÔNG có
-        intensities:     Dict[code → float] cường độ từ NLP
-        mention_counts:  Dict[code → int] số lần đề cập qua turns
-
-    Returns:
-        None nếu không match, Dict kết quả nếu match.
+    All other scoring logic is identical to v2.0.
     """
     user_symptoms = set(symptoms)
     denied_set    = set(denied_symptoms)
 
-    # ── Bước 1: if_none (loại trừ tuyệt đối) ─────────────
-    if_none = rule.get("if_none", [])
-    for symptom in if_none:
+    # ── Step 1: if_none hard exclude ──────────────────────
+    for symptom in rule.get("if_none", []):
         if symptom in user_symptoms:
             return None
 
-    # ── Bước 2: Denied symptom vs if_all ──────────────────
-    # Nếu user nói KHÔNG có triệu chứng bắt buộc → loại bệnh này
+    # ── Step 2: Denied vs if_all hard exclude ─────────────
     if_all = rule.get("if_all", [])
     for required in if_all:
         if required in denied_set:
             return None
 
-    # ── Bước 3: if_all (bắt buộc) ─────────────────────────
     if not if_all:
-        return None  # Rule không hợp lệ
+        return None
 
+    # ── Step 3: Soft if_all matching (NEW in v2.1) ────────
     matched_all = [s for s in if_all if s in user_symptoms]
-    if len(matched_all) != len(if_all):
-        return None  # Thiếu triệu chứng bắt buộc
+    missing_all  = [s for s in if_all if s not in user_symptoms]
 
-    # ── Bước 4: if_any (ít nhất 1) ────────────────────────
+    # Fraction of mandatory symptoms that are present
+    all_coverage = len(matched_all) / len(if_all)
+
+    if all_coverage < SOFT_MATCH_THRESHOLD:
+        return None  # Too many mandatory symptoms missing → reject
+
+    # ── Step 4: if_any (at least 1) ───────────────────────
     if_any = rule.get("if_any", [])
     matched_any = [s for s in if_any if s in user_symptoms]
 
     if if_any and not matched_any:
-        return None  # Không có triệu chứng phụ nào
+        return None
 
-    # ── Bước 5: Tính match_score ───────────────────────────
-    # Tổng triệu chứng kỳ vọng
+    # ── Step 5: match_score ───────────────────────────────
     total_expected = len(if_all) + len(if_any)
     total_matched  = len(matched_all) + len(matched_any)
 
-    # Base match ratio
-    if total_expected > 0:
-        match_ratio = total_matched / total_expected
-    else:
-        match_ratio = 0.5
+    match_ratio   = (total_matched / total_expected) if total_expected > 0 else 0.5
+    any_coverage  = (len(matched_any) / len(if_any)) if if_any else 0.0
+    match_score   = 0.60 * match_ratio + 0.40 * any_coverage
 
-    # Bonus cho if_any coverage (mỗi if_any khớp thêm → bonus)
-    any_coverage = 0.0
-    if if_any:
-        any_coverage = len(matched_any) / len(if_any)
-
-    # Kết hợp: if_all quan trọng hơn if_any (60/40)
-    match_score = 0.60 * match_ratio + 0.40 * any_coverage
-
-    # ── Bước 6: Symptom Count Bonus ───────────────────────
-    # Nhiều triệu chứng if_any khớp = điểm cao hơn
-    extra_any = max(0, len(matched_any) - 1)  # Thêm từ triệu chứng thứ 2 trở đi
+    # ── Step 6: Symptom Count Bonus ───────────────────────
+    extra_any   = max(0, len(matched_any) - 1)
     count_bonus = min(extra_any * SYMPTOM_COUNT_BONUS, MAX_BONUS)
 
-    # ── Bước 7: Intensity Bonus ───────────────────────────
-    # Nếu triệu chứng bắt buộc có intensity cao → bonus nhỏ
+    # ── Step 7: Intensity Bonus ───────────────────────────
     intensity_bonus = 0.0
     for s in matched_all:
         factor = intensities.get(s, 1.0)
@@ -146,8 +115,7 @@ def _check_rule(
             intensity_bonus += (factor - 1.0) * INTENSITY_WEIGHT
     intensity_bonus = min(intensity_bonus, 0.08)
 
-    # ── Bước 8: Multi-turn Mention Bonus ──────────────────
-    # Triệu chứng đề cập nhiều lần qua các turn → tin cậy hơn
+    # ── Step 8: Multi-turn Mention Bonus ──────────────────
     mention_bonus = 0.0
     for s in matched_all + matched_any:
         count = mention_counts.get(s, 1)
@@ -155,17 +123,20 @@ def _check_rule(
             mention_bonus += 0.01 * min(count - 1, 3)
     mention_bonus = min(mention_bonus, 0.05)
 
-    # ── Bước 9: Final Confidence ───────────────────────────
-    base        = rule["confidence"]
-    final       = base * (0.45 + 0.55 * match_score)
-    final      += count_bonus + intensity_bonus + mention_bonus
-    final       = round(min(final, 0.97), 3)
+    # ── Step 9: Soft miss penalty (NEW in v2.1) ───────────
+    soft_penalty = len(missing_all) * SOFT_MISS_PENALTY
+
+    # ── Step 10: Final Confidence ─────────────────────────
+    base  = rule["confidence"]
+    final = base * (0.45 + 0.55 * match_score)
+    final += count_bonus + intensity_bonus + mention_bonus
+    final -= soft_penalty   # ← new penalty for missing if_all
+    final  = round(min(max(final, 0.0), 0.97), 3)
 
     if final < CONFIDENCE_THRESHOLD:
         return None
 
-    # ── Kết quả ───────────────────────────────────────────
-    supporting = list(dict.fromkeys(matched_all + matched_any))  # unique, ordered
+    supporting = list(dict.fromkeys(matched_all + matched_any))
 
     return {
         "rule_id":       rule["id"],
@@ -181,38 +152,31 @@ def _check_rule(
         "supporting":    supporting,
         "match_score":   round(match_score, 3),
         "count_bonus":   round(count_bonus, 3),
+        # v2.1 extras for debugging
+        "missing_all":   missing_all,
+        "soft_penalty":  round(soft_penalty, 3),
     }
 
 
+# ─── DIFFERENTIAL PENALTY (unchanged from v2.0) ───────────
+
 def _apply_differential_penalty(results: List[Dict]) -> List[Dict]:
-    """
-    Differential Diagnosis: Giảm confidence cho bệnh không đặc hiệu
-    khi có bệnh khác phù hợp hơn với cùng triệu chứng.
-
-    Ví dụ: Cảm lạnh và Cúm đều có sốt + ho.
-    Nếu có thêm đau cơ → Cúm đặc trưng hơn → Cảm lạnh bị penalty.
-
-    Rule: Nếu bệnh B có matched_all ⊃ matched_all của A →
-          A bị giảm confidence nhỏ.
-    """
     if len(results) < 2:
         return results
-
     for i, r_a in enumerate(results):
         set_a = set(r_a["matched_all"] + r_a["matched_any"])
         for j, r_b in enumerate(results):
             if i == j:
                 continue
             set_b = set(r_b["matched_all"] + r_b["matched_any"])
-
-            # B có nhiều triệu chứng hơn và bao phủ A
             if set_a.issubset(set_b) and len(set_b) > len(set_a):
                 penalty = 0.04
                 results[i] = {**r_a, "confidence": round(r_a["confidence"] - penalty, 3)}
                 break
-
     return results
 
+
+# ─── MAIN INFERENCE (v2.1 — adds needs_llm flag) ──────────
 
 def run_inference(
     symptoms:        List[str],
@@ -221,69 +185,55 @@ def run_inference(
     mention_counts:  Optional[Dict[str, int]] = None,
 ) -> Dict[str, Any]:
     """
-    INFERENCE ENGINE v2: Forward Chaining
-
-    Bước 1: Lấy toàn bộ rules từ Knowledge Base
-    Bước 2: Với mỗi rule → _check_rule()
-    Bước 3: Thu thập kết quả match
-    Bước 4: Áp dụng Differential Penalty
-    Bước 5: Sắp xếp theo confidence
-    Bước 6: Tính uncertainty flag
-
-    Args:
-        symptoms:        List[str] - triệu chứng đã xác nhận
-        denied_symptoms: List[str] - triệu chứng bị phủ định
-        intensities:     Dict[str, float] - cường độ từ NLP
-        mention_counts:  Dict[str, int] - số lần đề cập
+    Forward Chaining Inference Engine v2.1.
 
     Returns:
         {
-            "results":   List[Dict],   # top N kết quả
-            "uncertain": bool,         # True nếu top 2 gần nhau
-            "gap":       float,        # khoảng cách top1 - top2
+            "results":   List[Dict],   # top N results (may be empty)
+            "uncertain": bool,
+            "gap":       float,
+            "needs_llm": bool,         # NEW — True when results is empty
         }
     """
     if not symptoms:
-        return {"results": [], "uncertain": False, "gap": 1.0}
+        return {"results": [], "uncertain": False, "gap": 1.0, "needs_llm": False}
 
-    denied    = denied_symptoms or []
-    intens    = intensities or {}
-    mentions  = mention_counts or {}
+    denied   = denied_symptoms or []
+    intens   = intensities or {}
+    mentions = mention_counts or {}
 
     rules   = get_all_rules()
     matches = []
 
-    # ── Forward Chaining Loop ────────────────────────────
     for rule in rules:
         result = _check_rule(rule, symptoms, denied, intens, mentions)
         if result is not None:
             matches.append(result)
 
-    # ── Differential Penalty ─────────────────────────────
     matches = _apply_differential_penalty(matches)
-
-    # ── Sort & Top N ─────────────────────────────────────
     matches.sort(key=lambda x: x["confidence"], reverse=True)
     top = matches[:MAX_RESULTS]
 
-    # ── Uncertainty Detection ─────────────────────────────
     uncertain = False
     gap = 1.0
     if len(top) >= 2:
-        gap = round(top[0]["confidence"] - top[1]["confidence"], 3)
+        gap       = round(top[0]["confidence"] - top[1]["confidence"], 3)
         uncertain = gap < UNCERTAINTY_GAP
+
+    # ── NEW v2.1: signal that LLM fallback is needed ──────
+    needs_llm = len(top) == 0
 
     return {
         "results":   top,
         "uncertain": uncertain,
         "gap":       gap,
+        "needs_llm": needs_llm,   # ← consumed by app.py
     }
 
 
-# ─── HELPERS ──────────────────────────────────────────────
+# ─── HELPERS (unchanged from v2.0) ────────────────────────
 
 def format_confidence_label(confidence: float) -> str:
-    """Chuyển confidence số → nhãn mô tả."""
     if confidence >= 0.82:
         return "Khả năng rất cao"
     elif confidence >= 0.68:
@@ -295,7 +245,6 @@ def format_confidence_label(confidence: float) -> str:
 
 
 def severity_label(severity: str) -> str:
-    """Chuyển severity code → mô tả tiếng Việt."""
     mapping = {
         "low":    "Nhẹ ✅",
         "medium": "Trung bình ⚠️",
@@ -309,17 +258,14 @@ def build_response_text(
     symptoms:         List[str],
     symptom_display:  List[str],
     denied_display:   Optional[List[str]] = None,
+    llm_fallback:     bool = False,        # NEW — adds a banner when LLM was used
 ) -> str:
     """
-    Tạo câu trả lời hội thoại từ kết quả inference v2.
+    Build conversational reply from inference result.
 
-    Format:
-      - Xác nhận triệu chứng (+ phủ định nếu có)
-      - Danh sách chẩn đoán kèm confidence
-      - [Uncertain banner] nếu cần làm rõ
-      - Lời khuyên của chẩn đoán hàng đầu
-      - Cảnh báo đi khám / tự theo dõi
-      - Disclaimer
+    v2.1 addition: if llm_fallback=True, prepend a note telling
+    the user that the rule engine had no match and an AI estimate
+    is being shown instead.
     """
     results   = inference_result.get("results", [])
     uncertain = inference_result.get("uncertain", False)
@@ -335,7 +281,15 @@ def build_response_text(
     top   = results[0]
     lines = []
 
-    # ── Phần 1: Xác nhận triệu chứng ──────────────────────
+    # ── LLM fallback banner (new) ─────────────────────────
+    if llm_fallback:
+        lines.append(
+            "> 🤖 _Không tìm thấy kết quả khớp trong cơ sở tri thức. "
+            "Kết quả dưới đây là ước tính từ AI — độ tin cậy thấp hơn bình thường._"
+        )
+        lines.append("")
+
+    # ── Confirm symptoms ─────────────────────────────────
     sym_str = ", ".join(symptom_display) if symptom_display else "các triệu chứng đã nêu"
     lines.append(f"Tôi đã ghi nhận các triệu chứng của bạn: **{sym_str}**.")
 
@@ -344,7 +298,6 @@ def build_response_text(
 
     lines.append("")
 
-    # ── Phần 2: Kết quả chẩn đoán ─────────────────────────
     if len(results) == 1:
         lines.append("Dựa trên phân tích, có khả năng bạn đang mắc:")
     else:
@@ -356,12 +309,10 @@ def build_response_text(
         pct   = int(r["confidence"] * 100)
         label = format_confidence_label(r["confidence"])
         sev   = severity_label(r["severity"])
-
         lines.append(f"**{i}. {r['name_vi']}** — {label} ({pct}%) | {sev}")
         lines.append(f"   _{r['explain']}_")
         lines.append("")
 
-    # ── Phần 3: Uncertain banner ───────────────────────────
     if uncertain and len(results) >= 2:
         lines.append(
             f"> ⚠️ Hai khả năng đầu có độ tin cậy gần nhau "
@@ -370,13 +321,11 @@ def build_response_text(
         )
         lines.append("")
 
-    # ── Phần 4: Lời khuyên ────────────────────────────────
     lines.append("---")
     lines.append(f"**💡 Lời khuyên (cho khả năng cao nhất — {top['name_vi']}):**")
     lines.append(top["advice"])
     lines.append("")
 
-    # ── Phần 5: Khuyến nghị đi khám ───────────────────────
     if top["see_doctor"]:
         lines.append("🏥 **Khuyến nghị:** Bạn nên đến gặp bác sĩ để được chẩn đoán chính xác.")
     else:
