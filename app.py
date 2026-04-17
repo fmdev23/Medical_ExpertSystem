@@ -1,50 +1,52 @@
 """
 =============================================================
-  FLASK APP v2.0 — Medical Chatbot
+  FLASK APP v3.2 — Medical Chatbot (Batch SSE Response)
 =============================================================
-  Nâng cấp so với v1:
+  Thay đổi so với v3.1:
 
-  [1] SESSION CONTEXT ĐẦY ĐỦ
-      → Lưu confirmed + denied + intensities + mention_counts
-      → Truyền toàn bộ context vào inference engine
+  [1] BATCH RESPONSE (không stream từng token)
+      → LLM vẫn được gọi qua generator nhưng text được
+        gom toàn bộ trước khi gửi về client
+      → Client nhận 1 event "text" duy nhất với full content
+      → Tránh hiệu ứng stream-by-token tốn thời gian hiển thị
+      → Kết hợp với reveal animation mượt ở frontend
 
-  [2] SMART FOLLOW-UP ENGINE
-      → Khi uncertain → hỏi câu phân biệt bệnh
-      → Chỉ hỏi triệu chứng CHƯA được nhắc tới
-      → Tự chọn câu hỏi dựa trên bệnh đang uncertain
+  [2] KEEP-ALIVE HEARTBEAT
+      → Trong khi LLM đang gen, server gửi heartbeat
+        comment SSE (": ping") mỗi 5s để tránh timeout
+      → EventSource / fetch stream không bị close sớm
 
-  [3] DENIED SYMPTOM TRACKING
-      → "không sốt" → lưu vào denied_symptoms
-      → Không hỏi lại triệu chứng user đã phủ nhận
-      → Hiển thị lại cho user biết đã ghi nhận
-
-  [4] MENTION COUNT TRACKING
-      → Đếm số lần mỗi triệu chứng được đề cập
-      → Engine dùng để tăng confidence cho symptom phổ biến
-
-  [5] PROGRESSIVE DIAGNOSIS
-      → Mỗi turn tích luỹ thêm ngữ cảnh
-      → Kết quả ngày càng chính xác hơn
+  [3] GIỮ NGUYÊN TỪ v3.1
+      → In-memory session store
+      → Smart follow-up engine
+      → Denied symptom tracking
+      → Progressive diagnosis
+      → LLM fallback diagnosis
+      → Graceful fallback
 =============================================================
 """
 
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, Response, stream_with_context
 import os
+import json
 import secrets
+import threading
 from datetime import datetime
+from typing import Dict, List, Optional, Tuple
 
 from nlp import (
-    extract_symptoms_hybrid,          # ← NEW: hybrid extraction
-    extract_symptoms_with_context,    # kept for backward compat
+    extract_symptoms_hybrid,
     symptoms_to_vietnamese,
     normalize_text,
-    describe_negations,
 )
 from engine import run_inference, build_response_text
-from llm    import call_llm_diagnosis 
+from llm    import call_llm_diagnosis, call_llm_chat_stream
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+
+# ─── IN-MEMORY CONVERSATION STORE ─────────────────────────
+_conversations: Dict[str, Dict] = {}
 
 
 # ─── MESSAGES ─────────────────────────────────────────────
@@ -62,164 +64,153 @@ WELCOME_MESSAGE = (
 
 # ─── FOLLOW-UP QUESTION BANK ──────────────────────────────
 
-# Hỏi triệu chứng để phân biệt 2 bệnh gần nhau
 DIFFERENTIAL_QUESTIONS: Dict = {
-    # (bệnh A, bệnh B) → hỏi triệu chứng phân biệt
-    ("influenza", "common_cold"):      ("muscle_pain",  "Bạn có bị đau cơ, nhức mỏi toàn thân không?"),
-    ("influenza", "covid_19"):         ("loss_of_smell","Bạn có bị mất khứu giác hoặc vị giác không?"),
-    ("covid_19",  "influenza"):        ("loss_of_taste","Bạn có cảm giác ăn không thấy vị hoặc không ngửi được mùi không?"),
-    ("covid_19",  "pneumonia"):        ("shortness_of_breath","Bạn có khó thở không? Nếu có thì SpO2 là bao nhiêu?"),
-    ("pneumonia", "bronchitis"):       ("shortness_of_breath","Bạn có cảm thấy khó thở hoặc thở nông không?"),
-    ("gastroenteritis","food_poisoning"): ("vomiting", "Triệu chứng xuất hiện ngay sau khi ăn không?"),
-    ("dengue_fever","influenza"):      ("rash",         "Bạn có nổi ban đỏ trên da không? Và đau khớp có dữ dội không?"),
-    ("uti","diabetes_symptoms"):       ("burning_urination","Khi tiểu có bị buốt hoặc đau không?"),
+    ("influenza",       "common_cold"):       ("muscle_pain",         "Bạn có bị đau cơ, nhức mỏi toàn thân không?"),
+    ("influenza",       "covid_19"):          ("loss_of_smell",       "Bạn có bị mất khứu giác hoặc vị giác không?"),
+    ("covid_19",        "influenza"):         ("loss_of_taste",       "Bạn có cảm giác ăn không thấy vị hoặc không ngửi được mùi không?"),
+    ("covid_19",        "pneumonia"):         ("shortness_of_breath", "Bạn có khó thở không? Nếu có thì SpO2 là bao nhiêu?"),
+    ("pneumonia",       "bronchitis"):        ("shortness_of_breath", "Bạn có cảm thấy khó thở hoặc thở nông không?"),
+    ("gastroenteritis", "food_poisoning"):    ("vomiting",            "Triệu chứng xuất hiện ngay sau khi ăn không?"),
+    ("dengue_fever",    "influenza"):         ("rash",                "Bạn có nổi ban đỏ trên da không? Và đau khớp có dữ dội không?"),
+    ("uti",             "diabetes_symptoms"): ("burning_urination",   "Khi tiểu có bị buốt hoặc đau không?"),
 }
 
-# Hỏi triệu chứng theo bệnh khi chưa đủ dữ liệu
 DISEASE_FOLLOWUP: Dict[str, Tuple[str, str]] = {
-    "influenza":         ("chills",              "Bạn có bị ớn lạnh, rùng mình kèm sốt không?"),
-    "common_cold":       ("sneezing",             "Bạn có hắt hơi nhiều không?"),
-    "covid_19":          ("loss_of_smell",        "Bạn có mất khứu giác hoặc vị giác không?"),
-    "pneumonia":         ("chest_pain",           "Bạn có cảm thấy đau hoặc tức ngực không?"),
-    "dengue_fever":      ("rash",                 "Bạn có nổi ban đỏ hoặc chấm đỏ trên da không?"),
-    "food_poisoning":    ("vomiting",             "Bạn có bị nôn mửa nhiều không?"),
-    "gastroenteritis":   ("diarrhea",             "Bạn đi ngoài như thế nào — lỏng hay bình thường?"),
-    "allergy":           ("eye_redness",          "Mắt bạn có bị đỏ hoặc ngứa mắt không?"),
-    "uti":               ("frequent_urination",   "Bạn có cảm thấy phải đi tiểu thường xuyên không?"),
-    "hepatitis":         ("dark_urine",           "Nước tiểu của bạn có màu vàng đậm hoặc sẫm không?"),
-    "cardiac_issue":     ("palpitations",         "Tim bạn có đập nhanh hoặc cảm giác hồi hộp không?"),
-    "hypertension_headache": ("dizziness",        "Bạn có bị chóng mặt hoặc hoa mắt kèm đau đầu không?"),
-    "bronchitis":        ("chest_pain",           "Bạn có cảm thấy tức ngực khi ho không?"),
-    "pharyngitis":       ("swollen_lymph",        "Bạn có thấy nổi hạch hoặc cứng dưới cổ không?"),
+    "influenza":             ("chills",            "Bạn có bị ớn lạnh, rùng mình kèm sốt không?"),
+    "common_cold":           ("sneezing",           "Bạn có hắt hơi nhiều không?"),
+    "covid_19":              ("loss_of_smell",      "Bạn có mất khứu giác hoặc vị giác không?"),
+    "pneumonia":             ("chest_pain",         "Bạn có cảm thấy đau hoặc tức ngực không?"),
+    "dengue_fever":          ("rash",               "Bạn có nổi ban đỏ hoặc chấm đỏ trên da không?"),
+    "food_poisoning":        ("vomiting",           "Bạn có bị nôn mửa nhiều không?"),
+    "gastroenteritis":       ("diarrhea",           "Bạn đi ngoài như thế nào — lỏng hay bình thường?"),
+    "allergy":               ("eye_redness",        "Mắt bạn có bị đỏ hoặc ngứa mắt không?"),
+    "uti":                   ("frequent_urination", "Bạn có cảm thấy phải đi tiểu thường xuyên không?"),
+    "hepatitis":             ("dark_urine",         "Nước tiểu của bạn có màu vàng đậm hoặc sẫm không?"),
+    "cardiac_issue":         ("palpitations",       "Tim bạn có đập nhanh hoặc cảm giác hồi hộp không?"),
+    "hypertension_headache": ("dizziness",          "Bạn có bị chóng mặt hoặc hoa mắt kèm đau đầu không?"),
+    "bronchitis":            ("chest_pain",         "Bạn có cảm thấy tức ngực khi ho không?"),
+    "pharyngitis":           ("swollen_lymph",      "Bạn có thấy nổi hạch hoặc cứng dưới cổ không?"),
 }
 
-# Import type hint
-from typing import Dict, List, Optional, Tuple
 
+# ─── SESSION MANAGEMENT (IN-MEMORY) ───────────────────────
 
-# ─── SESSION MANAGEMENT ───────────────────────────────────
+def _get_sid() -> str:
+    if "_sid" not in session:
+        session["_sid"] = secrets.token_hex(16)
+    return session["_sid"]
+
 
 def get_session_data() -> Dict:
-    """
-    Lấy hoặc tạo session data với cấu trúc đầy đủ v2.
-    """
-    if "conv" not in session:
-        session["conv"] = {
-            "confirmed_symptoms":  [],    # List[str]: triệu chứng đã xác nhận
-            "denied_symptoms":     [],    # List[str]: triệu chứng đã phủ nhận
-            "intensities":         {},    # Dict[str, float]: cường độ
-            "mention_counts":      {},    # Dict[str, int]: số lần đề cập
-            "turn_count":          0,
-            "last_diseases":       [],    # Bệnh kết quả lần trước
-            "asked_questions":     [],    # Triệu chứng đã hỏi follow-up
-            "uncertain_turns":     0,     # Số turns liên tiếp uncertain
+    sid = _get_sid()
+    if sid not in _conversations:
+        _conversations[sid] = {
+            "confirmed_symptoms": [],
+            "denied_symptoms":    [],
+            "intensities":        {},
+            "mention_counts":     {},
+            "turn_count":         0,
+            "last_diseases":      [],
+            "asked_questions":    [],
+            "uncertain_turns":    0,
+            "chat_history":       [],
         }
-    return session["conv"]
+    return _conversations[sid]
 
 
 def save_session(conv: Dict) -> None:
-    session["conv"] = conv
+    sid = session.get("_sid")
+    if sid:
+        _conversations[sid] = conv
     session.modified = True
 
 
 def _merge_nlp_into_session(conv: Dict, nlp_result: Dict) -> None:
-    """
-    Cập nhật session với kết quả NLP mới:
-    - Cộng dồn confirmed symptoms (không trùng)
-    - Cộng dồn denied symptoms (không trùng)
-    - Cộng dồn / update intensities
-    - Tăng mention_counts
-    """
     new_confirmed = nlp_result["confirmed"]
     new_denied    = nlp_result["denied"]
     new_intens    = nlp_result["intensities"]
 
-    # Confirmed
     for s in new_confirmed:
         if s not in conv["confirmed_symptoms"]:
             conv["confirmed_symptoms"].append(s)
-        # Update intensity (lấy max)
         old_i = conv["intensities"].get(s, 1.0)
         conv["intensities"][s] = max(old_i, new_intens.get(s, 1.0))
-        # Tăng mention count
         conv["mention_counts"][s] = conv["mention_counts"].get(s, 0) + 1
 
-    # Denied
     for s in new_denied:
         if s not in conv["denied_symptoms"]:
             conv["denied_symptoms"].append(s)
-        # Nếu user phủ nhận 1 symptom đã confirmed → xoá khỏi confirmed
         if s in conv["confirmed_symptoms"]:
             conv["confirmed_symptoms"].remove(s)
             conv["intensities"].pop(s, None)
+
+
+def _update_chat_history(conv: Dict, user_msg: str, ai_reply: str) -> None:
+    history = conv.setdefault("chat_history", [])
+    history.append({"role": "user",  "content": user_msg})
+    history.append({"role": "model", "content": ai_reply})
+    if len(history) > 20:
+        conv["chat_history"] = history[-20:]
 
 
 # ─── INTENT DETECTION ─────────────────────────────────────
 
 def detect_intent(text: str) -> str:
     norm = normalize_text(text)
-
-    greeting_kw = ["xin chào", "chào", "hello", "hi", "hey", "start", "bắt đầu"]
-    reset_kw    = ["reset", "làm lại", "bắt đầu lại", "xoá hết", "clear", "thử lại", "bắt đầu từ đầu"]
-    help_kw     = ["giúp tôi", "hướng dẫn", "help", "hỗ trợ"]
-
-    if any(kw in norm for kw in reset_kw):
+    if any(kw in norm for kw in ["reset", "làm lại", "bắt đầu lại", "xoá hết", "clear", "thử lại", "bắt đầu từ đầu"]):
         return "reset"
-    if any(kw in norm for kw in greeting_kw):
+    if any(kw in norm for kw in ["xin chào", "chào", "hello", "hi", "hey", "start", "bắt đầu"]):
         return "greeting"
-    if any(kw in norm for kw in help_kw):
+    if any(kw in norm for kw in ["giúp tôi", "hướng dẫn", "help", "hỗ trợ"]):
         return "help"
     return "symptom"
 
 
 # ─── FOLLOW-UP QUESTION SELECTOR ──────────────────────────
 
-def pick_followup_question(
-    conv:      Dict,
-    inference: Dict,
-) -> Optional[str]:
-    """
-    Chọn câu hỏi follow-up thông minh nhất.
-
-    Ưu tiên:
-    1. Uncertain → hỏi câu phân biệt 2 bệnh đầu
-    2. Bệnh đầu cần thêm triệu chứng → hỏi theo disease_followup
-    3. Không có gì cần hỏi → None
-
-    Không bao giờ hỏi lại:
-    - Triệu chứng đã xác nhận
-    - Triệu chứng đã phủ nhận
-    - Triệu chứng đã hỏi trước đó
-    """
-    results  = inference.get("results", [])
-    asked    = set(conv.get("asked_questions", []))
-    known    = set(conv["confirmed_symptoms"] + conv["denied_symptoms"])
+def pick_followup_question(conv: Dict, inference: Dict) -> Optional[str]:
+    results = inference.get("results", [])
+    asked   = set(conv.get("asked_questions", []))
+    known   = set(conv["confirmed_symptoms"] + conv["denied_symptoms"])
 
     def can_ask(sym: str) -> bool:
         return sym not in known and sym not in asked
 
-    # ── Ưu tiên 1: Uncertain differential ─────────────────
     if inference.get("uncertain") and len(results) >= 2:
-        d1 = results[0]["disease"]
-        d2 = results[1]["disease"]
-
-        for key_pair in [(d1, d2), (d2, d1)]:
-            if key_pair in DIFFERENTIAL_QUESTIONS:
-                sym, question = DIFFERENTIAL_QUESTIONS[key_pair]
+        d1, d2 = results[0]["disease"], results[1]["disease"]
+        for pair in [(d1, d2), (d2, d1)]:
+            if pair in DIFFERENTIAL_QUESTIONS:
+                sym, question = DIFFERENTIAL_QUESTIONS[pair]
                 if can_ask(sym):
                     conv["asked_questions"].append(sym)
                     return question
 
-    # ── Ưu tiên 2: Disease-specific follow-up ─────────────
     if results:
-        top_disease = results[0]["disease"]
-        if top_disease in DISEASE_FOLLOWUP:
-            sym, question = DISEASE_FOLLOWUP[top_disease]
+        top = results[0]["disease"]
+        if top in DISEASE_FOLLOWUP:
+            sym, question = DISEASE_FOLLOWUP[top]
             if can_ask(sym):
                 conv["asked_questions"].append(sym)
                 return question
 
     return None
+
+
+# ─── SSE HELPERS ──────────────────────────────────────────
+
+def _sse(data: Dict) -> str:
+    """Format một SSE data event."""
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _sse_heartbeat() -> str:
+    """SSE comment — giữ kết nối sống, không trigger onmessage."""
+    return ": ping\n\n"
+
+
+def _sse_progress(stage: str, pct: int) -> str:
+    """Gửi progress update cho frontend hiển thị loading stages."""
+    return _sse({"type": "progress", "stage": stage, "pct": pct})
 
 
 # ─── ROUTES ───────────────────────────────────────────────
@@ -231,88 +222,92 @@ def index():
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
+    """
+    Endpoint chính — trả về SSE stream.
+    Text LLM được gom TOÀN BỘ rồi gửi 1 lần (batch),
+    kết hợp heartbeat giữ connection trong khi đợi.
+    """
     try:
         data    = request.get_json(silent=True) or {}
         message = data.get("message", "").strip()
- 
+
         if not message:
             return jsonify({
-                "reply": "Bạn chưa nhập gì cả. Hãy mô tả triệu chứng của bạn.",
-                "symptoms": [], "results": []
+                "reply":    "Bạn chưa nhập gì cả. Hãy mô tả triệu chứng của bạn.",
+                "symptoms": [], "results": [],
             })
- 
+
         conv = get_session_data()
         conv["turn_count"] += 1
- 
         intent = detect_intent(message)
- 
+
         # ── GREETING ──────────────────────────────────────
         if intent == "greeting" and conv["turn_count"] == 1:
             save_session(conv)
             return jsonify({
                 "reply":    WELCOME_MESSAGE,
                 "symptoms": [], "results": [],
-                "intent":   intent,
-                "turn":     conv["turn_count"],
+                "intent":   intent, "turn": conv["turn_count"],
             })
- 
+
         # ── RESET ─────────────────────────────────────────
         if intent == "reset":
-            session.pop("conv", None)
+            sid = session.get("_sid")
+            if sid and sid in _conversations:
+                del _conversations[sid]
             return jsonify({
-                "reply":    "Đã làm mới cuộc trò chuyện.\\n\\n" + WELCOME_MESSAGE,
+                "reply":    "Đã làm mới cuộc trò chuyện.\n\n" + WELCOME_MESSAGE,
                 "symptoms": [], "results": [],
                 "intent":   "reset", "turn": 0,
             })
- 
+
         # ── HELP ──────────────────────────────────────────
         if intent == "help":
             save_session(conv)
             return jsonify({
                 "reply": (
-                    "**Cách sử dụng Y-AI:**\\n\\n"
-                    "- Mô tả triệu chứng bạn đang gặp\\n"
-                    "- Cho biết triệu chứng bạn KHÔNG có\\n"
-                    "- Trả lời câu hỏi của tôi để phân tích chính xác hơn\\n"
+                    "**Cách sử dụng Y-AI:**\n\n"
+                    "- Mô tả triệu chứng bạn đang gặp\n"
+                    "- Cho biết triệu chứng bạn KHÔNG có\n"
+                    "- Trả lời câu hỏi của tôi để phân tích chính xác hơn\n"
                     "- Gõ **reset** để bắt đầu lại từ đầu"
                 ),
                 "symptoms": [], "results": [],
                 "intent":   "help", "turn": conv["turn_count"],
             })
- 
+
         # ════════════════════════════════════════════════
-        #  STEP 1: HYBRID NLP EXTRACTION
-        #  → Try LLM first, fall back to rule-based
+        #  STEP 1 — NLP EXTRACTION
         # ════════════════════════════════════════════════
-        nlp_result = extract_symptoms_hybrid(message)   # ← CHANGED (was extract_symptoms_with_context)
+        nlp_result = extract_symptoms_hybrid(message)
         _merge_nlp_into_session(conv, nlp_result)
- 
+
         confirmed = conv["confirmed_symptoms"]
         denied    = conv["denied_symptoms"]
         intens    = conv["intensities"]
         mentions  = conv["mention_counts"]
- 
+
         # ── No symptoms found ─────────────────────────────
         if not confirmed:
             clarify = (
-                "Tôi chưa nhận được triệu chứng cụ thể từ mô tả của bạn.\\n\\n"
-                "Hãy thử nêu rõ hơn, ví dụ:\\n"
-                "- _'Tôi đang bị sốt, ho và mệt mỏi'_\\n"
-                "- _'Tôi đau bụng và buồn nôn'_\\n"
+                "Tôi chưa nhận được triệu chứng cụ thể từ mô tả của bạn.\n\n"
+                "Hãy thử nêu rõ hơn, ví dụ:\n"
+                "- _'Tôi đang bị sốt, ho và mệt mỏi'_\n"
+                "- _'Tôi đau bụng và buồn nôn'_\n"
                 "- _'Tôi không sốt nhưng bị sổ mũi và hắt hơi'_"
             )
             if denied:
                 dn_display = symptoms_to_vietnamese(denied)
-                clarify += f"\\n\\n_(Đã ghi nhận bạn không có: {', '.join(dn_display)})_"
+                clarify += f"\n\n_(Đã ghi nhận bạn không có: {', '.join(dn_display)})_"
             save_session(conv)
             return jsonify({
                 "reply":    clarify,
                 "symptoms": [], "results": [],
                 "intent":   "symptom", "turn": conv["turn_count"],
             })
- 
+
         # ════════════════════════════════════════════════
-        #  STEP 2: RULE ENGINE
+        #  STEP 2 — RULE ENGINE
         # ════════════════════════════════════════════════
         inference = run_inference(
             symptoms        = confirmed,
@@ -320,49 +315,28 @@ def chat():
             intensities     = intens,
             mention_counts  = mentions,
         )
- 
+
         # ════════════════════════════════════════════════
-        #  STEP 3: LLM FALLBACK DIAGNOSIS
-        #  → Only when rule engine returns zero results
+        #  STEP 3 — LLM FALLBACK DIAGNOSIS
         # ════════════════════════════════════════════════
         llm_fallback = False
         if inference.get("needs_llm"):
             llm_result = call_llm_diagnosis(confirmed)
             if llm_result and llm_result.get("results"):
-                # Graft LLM results into the inference dict so the
-                # rest of the response pipeline works unchanged
                 inference["results"]   = llm_result["results"]
                 inference["uncertain"] = len(llm_result["results"]) >= 2
                 inference["needs_llm"] = False
                 llm_fallback = True
- 
-        # ── Uncertain turns counter ───────────────────────
+
         if inference["uncertain"]:
             conv["uncertain_turns"] = conv.get("uncertain_turns", 0) + 1
         else:
             conv["uncertain_turns"] = 0
- 
-        # ── Display data ──────────────────────────────────
+
         sym_display    = symptoms_to_vietnamese(confirmed)
-        denied_display = symptoms_to_vietnamese(denied) if denied else None
- 
-        # ── Build response ────────────────────────────────
-        main_reply = build_response_text(
-            inference_result = inference,
-            symptoms         = confirmed,
-            symptom_display  = sym_display,
-            denied_display   = denied_display,
-            llm_fallback     = llm_fallback,   # ← NEW kwarg
-        )
- 
-        # ── Smart follow-up question ──────────────────────
-        followup = pick_followup_question(conv, inference)
-        if followup:
-            main_reply += f"\n\n---\n💬 **Câu hỏi thêm:** {followup}"
- 
-        conv["last_diseases"] = [r["disease"] for r in inference["results"]]
-        save_session(conv)
- 
+        denied_display = symptoms_to_vietnamese(denied) if denied else []
+        followup       = pick_followup_question(conv, inference)
+
         result_summary = [
             {
                 "name_vi":    r["name_vi"],
@@ -372,18 +346,122 @@ def chat():
             }
             for r in inference["results"]
         ]
- 
-        return jsonify({
-            "reply":        main_reply,
-            "symptoms":     sym_display,
-            "denied":       denied_display or [],
-            "results":      result_summary,
-            "uncertain":    inference["uncertain"],
-            "llm_fallback": llm_fallback,   # expose to frontend if needed
-            "intent":       "symptom",
-            "turn":         conv["turn_count"],
-        })
- 
+
+        conv["last_diseases"] = [r["disease"] for r in inference["results"]]
+        save_session(conv)
+
+        # Snapshot cho generator
+        _inference_results = list(inference["results"])
+        _uncertain         = inference["uncertain"]
+        _chat_history      = list(conv.get("chat_history", []))
+        _sid               = session.get("_sid")
+
+        # ════════════════════════════════════════════════
+        #  STEP 4 — SSE: META → BATCH TEXT → DONE
+        #  Dùng threading.Event để gom text trong background
+        # ════════════════════════════════════════════════
+
+        def generate():
+            import time
+
+            # ── Event 1: metadata ngay lập tức ───────────
+            yield _sse({
+                "type":         "meta",
+                "symptoms":     sym_display,
+                "denied":       denied_display,
+                "results":      result_summary,
+                "uncertain":    _uncertain,
+                "llm_fallback": llm_fallback,
+                "intent":       "symptom",
+                "turn":         conv["turn_count"],
+            })
+
+            # ── Gom toàn bộ text từ LLM ──────────────────
+            # Gửi progress stages để frontend hiển thị loading
+            yield _sse_progress("Đang tra cứu cơ sở dữ liệu y khoa…", 20)
+
+            accumulated: List[str] = []
+            stream_ok = False
+
+            if _inference_results:
+                try:
+                    chunk_count = 0
+                    last_heartbeat = time.time()
+                    last_progress  = time.time()
+                    progress_stages = [
+                        (30, "Đang đối chiếu triệu chứng với quy tắc lâm sàng…"),
+                        (55, "Đang phân tích mức độ và nguy cơ…"),
+                        (75, "Đang soạn lời khuyên phù hợp…"),
+                        (90, "Hoàn thiện phản hồi…"),
+                    ]
+                    stage_idx = 0
+
+                    for chunk in call_llm_chat_stream(
+                        user_message       = message,
+                        symptom_display    = sym_display,
+                        denied_display     = denied_display,
+                        inference_results  = _inference_results,
+                        uncertain          = _uncertain,
+                        followup_question  = followup,
+                        chat_history       = _chat_history,
+                        llm_fallback       = llm_fallback,
+                    ):
+                        accumulated.append(chunk)
+                        stream_ok = True
+                        chunk_count += 1
+                        now = time.time()
+
+                        # Heartbeat mỗi 4 giây để giữ kết nối
+                        if now - last_heartbeat >= 4:
+                            yield _sse_heartbeat()
+                            last_heartbeat = now
+
+                        # Progress update mỗi ~5 giây
+                        if now - last_progress >= 5 and stage_idx < len(progress_stages):
+                            pct, label = progress_stages[stage_idx]
+                            yield _sse_progress(label, pct)
+                            stage_idx += 1
+                            last_progress = now
+
+                except Exception as stream_err:
+                    app.logger.warning(f"Stream error mid-way: {stream_err}")
+
+            # ── Fallback nếu LLM không trả về gì ─────────
+            if not stream_ok:
+                fallback_text = build_response_text(
+                    inference_result = inference,
+                    symptoms         = confirmed,
+                    symptom_display  = sym_display,
+                    denied_display   = denied_display if denied_display else None,
+                    llm_fallback     = llm_fallback,
+                )
+                if followup:
+                    fallback_text += f"\n\n---\n💬 **Câu hỏi thêm:** {followup}"
+                accumulated.append(fallback_text)
+
+            # ── Gửi TOÀN BỘ text 1 lần duy nhất ─────────
+            full_reply = "".join(accumulated)
+
+            yield _sse_progress("Xong! Đang hiển thị kết quả…", 100)
+            yield _sse({"type": "text", "content": full_reply})
+
+            # ── Lưu history ───────────────────────────────
+            if _sid and _sid in _conversations:
+                _update_chat_history(_conversations[_sid], message, full_reply)
+
+            # ── Done ──────────────────────────────────────
+            yield _sse({"type": "done"})
+
+        return Response(
+            stream_with_context(generate()),
+            content_type = "text/event-stream; charset=utf-8",
+            headers      = {
+                "Cache-Control":     "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection":        "keep-alive",
+            },
+        )
+
     except Exception as e:
         import traceback
         return jsonify({
@@ -396,26 +474,35 @@ def chat():
 
 @app.route("/api/reset", methods=["POST"])
 def reset():
-    session.pop("conv", None)
+    sid = session.get("_sid")
+    if sid and sid in _conversations:
+        del _conversations[sid]
     return jsonify({"status": "ok"})
 
 
 @app.route("/api/status")
 def status():
     return jsonify({
-        "status": "running",
-        "version": "2.0",
-        "time": datetime.now().isoformat(),
+        "status":           "running",
+        "version":          "3.2",
+        "llm":              "LM Studio (local)",
+        "model":            "gemma-4-e2b",
+        "streaming":        False,
+        "batch_response":   True,
+        "active_sessions":  len(_conversations),
+        "time":             datetime.now().isoformat(),
     })
 
 
 @app.route("/api/debug/session")
 def debug_session():
-    """Endpoint debug (chỉ dùng khi phát triển)."""
     if not app.debug:
         return jsonify({"error": "Debug mode only"}), 403
-    conv = session.get("conv", {})
-    return jsonify(conv)
+    sid  = session.get("_sid")
+    conv = _conversations.get(sid, {})
+    debug_data = {k: v for k, v in conv.items() if k != "chat_history"}
+    debug_data["chat_history_length"] = len(conv.get("chat_history", []))
+    return jsonify(debug_data)
 
 
 # ─── MAIN ─────────────────────────────────────────────────
@@ -423,9 +510,11 @@ def debug_session():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
 
-    print("=" * 55)
-    print("  Y-AI v2.0 — Upgraded NLP + Inference Engine")
-    print(f"  PORT: {port}")
-    print("=" * 55)
+    print("=" * 60)
+    print("  Y-AI v3.2 — Batch SSE + Engaging Loading UX")
+    print(f"  PORT   : {port}")
+    print("  MODEL  : gemma-4-e2b (local LM Studio)")
+    print("  STREAM : SSE batch (1 text event) ✓")
+    print("=" * 60)
 
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
