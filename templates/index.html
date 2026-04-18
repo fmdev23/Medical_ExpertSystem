@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <title>YAI — Chẩn Đoán Y Khoa</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -12,254 +13,6 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
   <link rel="stylesheet" href="/static/style.css" />
-
-  <style>
-    /* ══════════════════════════════════════════════════════
-       LOADING EXPERIENCE — Toàn bộ trạng thái chờ AI
-    ══════════════════════════════════════════════════════ */
-
-    /* ── Loading card thay thế typing indicator ── */
-    .ai-loading-card {
-      display: none;
-      flex-direction: column;
-      gap: 0;
-      padding: 0 16px 16px;
-      max-width: 520px;
-    }
-    .ai-loading-card.visible {
-      display: flex;
-      animation: cardSlideIn .35s cubic-bezier(.22,1,.36,1) both;
-    }
-    @keyframes cardSlideIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-
-    .loading-inner {
-      background: var(--bg-bubble, #f8fafc);
-      border: 1px solid var(--border-soft, #e2e8f0);
-      border-radius: 16px 16px 16px 4px;
-      overflow: hidden;
-      box-shadow: 0 2px 12px rgba(0,0,0,.06);
-    }
-
-    /* ── Progress bar ── */
-    .loading-progress-track {
-      height: 3px;
-      background: var(--border-soft, #e2e8f0);
-      position: relative;
-      overflow: hidden;
-    }
-    .loading-progress-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #1a8fd1, #06b6d4, #1a8fd1);
-      background-size: 200% 100%;
-      border-radius: 0 2px 2px 0;
-      width: 0%;
-      transition: width .8s cubic-bezier(.4,0,.2,1);
-      animation: progressShimmer 2s linear infinite;
-    }
-    @keyframes progressShimmer {
-      0%   { background-position: 200% 0; }
-      100% { background-position: -200% 0; }
-    }
-
-    /* ── Main body ── */
-    .loading-body {
-      padding: 16px 18px 14px;
-    }
-
-    /* ── Stage row ── */
-    .loading-stage-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-    .stage-spinner {
-      width: 20px;
-      height: 20px;
-      flex-shrink: 0;
-      position: relative;
-    }
-    .stage-spinner svg {
-      width: 100%;
-      height: 100%;
-      animation: spinnerRotate 1.2s linear infinite;
-    }
-    @keyframes spinnerRotate {
-      to { transform: rotate(360deg); }
-    }
-    .stage-spinner svg circle {
-      fill: none;
-      stroke: var(--accent, #1a8fd1);
-      stroke-width: 2.5;
-      stroke-dasharray: 40 20;
-      stroke-linecap: round;
-    }
-    .stage-label {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-primary, #1e293b);
-      transition: all .4s ease;
-    }
-    .stage-elapsed {
-      margin-left: auto;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      color: var(--text-muted, #94a3b8);
-      background: var(--border-soft, #f1f5f9);
-      padding: 2px 7px;
-      border-radius: 20px;
-      min-width: 42px;
-      text-align: center;
-    }
-
-    /* ── Step checklist ── */
-    .loading-steps {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      margin-bottom: 14px;
-    }
-    .loading-step {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      color: var(--text-muted, #94a3b8);
-      transition: color .3s ease, opacity .3s ease;
-      opacity: .5;
-    }
-    .loading-step.step-done {
-      color: #22c55e;
-      opacity: 1;
-    }
-    .loading-step.step-active {
-      color: var(--accent, #1a8fd1);
-      opacity: 1;
-      font-weight: 600;
-    }
-    .step-icon {
-      font-size: 13px;
-      width: 18px;
-      text-align: center;
-      flex-shrink: 0;
-    }
-
-    /* ── Health tip card ── */
-    .health-tip-wrap {
-      border-top: 1px solid var(--border-soft, #e2e8f0);
-      padding: 11px 18px 13px;
-      background: linear-gradient(135deg,
-        rgba(26,143,209,.04) 0%,
-        rgba(6,182,212,.04) 100%);
-    }
-    .tip-header {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: .8px;
-      color: var(--accent, #1a8fd1);
-      margin-bottom: 6px;
-      opacity: .8;
-    }
-    .tip-pulse-dot {
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: var(--accent, #1a8fd1);
-      animation: tipDotPulse 2s ease infinite;
-    }
-    @keyframes tipDotPulse {
-      0%, 100% { transform: scale(1); opacity: 1; }
-      50%       { transform: scale(1.6); opacity: .6; }
-    }
-    .tip-text {
-      font-size: 12.5px;
-      color: var(--text-secondary, #475569);
-      line-height: 1.55;
-      min-height: 36px;
-      transition: opacity .4s ease, transform .4s ease;
-    }
-    .tip-text.tip-exit {
-      opacity: 0;
-      transform: translateY(-6px);
-    }
-    .tip-text.tip-enter {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-    .tip-text.tip-visible {
-      opacity: 1;
-      transform: translateY(0);
-    }
-    .tip-counter {
-      display: flex;
-      gap: 4px;
-      margin-top: 8px;
-    }
-    .tip-dot {
-      width: 4px;
-      height: 4px;
-      border-radius: 50%;
-      background: var(--border-soft, #cbd5e1);
-      transition: background .3s, transform .3s;
-    }
-    .tip-dot.active {
-      background: var(--accent, #1a8fd1);
-      transform: scale(1.4);
-    }
-
-    /* ── Sidebar flash ── */
-    @keyframes sidebarFlash {
-      0%   { background: rgba(26,143,209,.08); }
-      100% { background: transparent; }
-    }
-    .sidebar-section.flash-update {
-      animation: sidebarFlash .5s ease forwards;
-      border-radius: 8px;
-    }
-
-    /* ══════════════════════════════════════════════════════
-       REVEAL ANIMATION — Khi AI trả kết quả về
-    ══════════════════════════════════════════════════════ */
-
-    /* Bubble ẩn ban đầu, reveal bằng JS */
-    .bubble-reveal {
-      opacity: 0;
-      transform: translateY(8px) scale(.99);
-      transition:
-        opacity .5s cubic-bezier(.22,1,.36,1),
-        transform .5s cubic-bezier(.22,1,.36,1);
-    }
-    .bubble-reveal.revealed {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-
-    /* Từng đoạn văn fade in staggered */
-    .msg-paragraph {
-      opacity: 0;
-      transform: translateY(5px);
-      animation: none;
-    }
-    .msg-paragraph.para-visible {
-      animation: paraFadeIn .4s cubic-bezier(.22,1,.36,1) both;
-    }
-    @keyframes paraFadeIn {
-      from { opacity: 0; transform: translateY(5px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-
-    /* ── Sidebar bars animate ── */
-    .result-bar {
-      transition: width 1s cubic-bezier(.4,0,.2,1);
-    }
-  </style>
 </head>
 <body>
 
@@ -267,12 +20,15 @@
 
   <div class="sidebar-overlay" id="sidebarOverlay" aria-hidden="true"></div>
 
-  <!-- ── Sidebar ─────────────────────────────────────────── -->
+  <!-- ══════════════════════════════════════════════════════
+       SIDEBAR
+  ══════════════════════════════════════════════════════ -->
   <aside class="sidebar" id="sidebar" role="complementary" aria-label="Bảng chẩn đoán">
 
+    <!-- Brand -->
     <div class="sidebar-brand">
-      <div class="brand-icon">
-        <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
+      <div class="brand-icon" aria-hidden="true">
+        <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round"
             d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158
                a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547
@@ -282,15 +38,23 @@
                A2 2 0 009 10.172V5L8 4z"/>
         </svg>
       </div>
-      <div class="brand-text">
+      <div class="brand-text full-only">
         <div class="brand-name">Y <span class="brand-ai-badge">AI</span></div>
         <div class="brand-sub">Chẩn Đoán Y Khoa</div>
       </div>
     </div>
 
+    <!-- Engine info section -->
     <div class="sidebar-section">
-      <div class="section-label">Thông tin hệ thống</div>
-      <div class="engine-list">
+      <!-- Mini: 3 dots stacked -->
+      <div class="mini-engine-dots mini-only" title="Rule-Based AI · NLP · LM Studio">
+        <div class="engine-dot dot-blue"></div>
+        <div class="engine-dot dot-cyan"></div>
+        <div class="engine-dot dot-teal"></div>
+      </div>
+      <!-- Full: labels -->
+      <div class="section-label full-only">Thông tin hệ thống</div>
+      <div class="engine-list full-only">
         <div class="engine-item">
           <span class="engine-dot dot-blue"></span>
           <span class="engine-label">Rule-Based AI Engine</span>
@@ -301,22 +65,37 @@
         </div>
         <div class="engine-item">
           <span class="engine-dot dot-teal"></span>
-          <span class="engine-label">LM Studio · Gemma 4</span>
+          <span class="engine-label" id="llmEngineLabel">LM Studio · Gemma 4</span>
         </div>
       </div>
     </div>
 
+    <!-- Symptom section -->
     <div class="sidebar-section" id="symptom-panel" style="display:none" aria-live="polite">
-      <div class="section-label">Triệu chứng ghi nhận</div>
-      <div id="symptom-tags" class="tag-list" role="list"></div>
+      <!-- Mini: icon + count badge -->
+      <div class="mini-sym-indicator mini-only" id="symMiniIndicator" title="Triệu chứng ghi nhận">
+        <span class="mini-sym-icon">🏷</span>
+        <span class="mini-sym-badge" id="symMiniBadge">0</span>
+      </div>
+      <!-- Full: label + tags -->
+      <div class="section-label full-only">Triệu chứng ghi nhận</div>
+      <div id="symptom-tags" class="tag-list full-only" role="list"></div>
     </div>
 
+    <!-- Results section -->
     <div class="sidebar-section" id="result-panel" style="display:none" aria-live="polite">
-      <div class="section-label">Kết quả chẩn đoán sơ bộ</div>
-      <div id="result-cards" class="result-list" role="list"></div>
+      <!-- Mini: chart icon + top confidence -->
+      <div class="mini-res-indicator mini-only" id="resMiniIndicator" title="Kết quả chẩn đoán sơ bộ">
+        <span class="mini-res-icon">📊</span>
+        <span class="mini-res-conf" id="resMiniConf">—</span>
+      </div>
+      <!-- Full: label + cards -->
+      <div class="section-label full-only">Kết quả chẩn đoán sơ bộ</div>
+      <div id="result-cards" class="result-list full-only" role="list"></div>
     </div>
 
-    <div class="sidebar-section">
+    <!-- Hint chips (full only) -->
+    <div class="sidebar-section full-only">
       <div class="section-label">Gợi ý kiểm tra nhanh</div>
       <div class="hint-chips" role="list">
         <button class="chip" onclick="insertHint('Tôi bị sốt cao và ho khan')"><span class="chip-icon">🌡️</span> Sốt + Ho</button>
@@ -328,16 +107,27 @@
       </div>
     </div>
 
+    <!-- Footer -->
     <div class="sidebar-footer">
+      <!-- Collapse toggle — desktop only -->
+      <button class="btn-collapse desktop-only" id="sidebarCollapseBtn"
+              onclick="toggleMini()" aria-label="Thu gọn/mở rộng sidebar">
+        <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+        </svg>
+        <span class="full-only">Thu gọn</span>
+      </button>
+
       <button class="btn-reset" onclick="resetChat()" aria-label="Làm mới phiên chẩn đoán">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round"
             d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9
                m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
         </svg>
-        Làm mới chẩn đoán
+        <span class="full-only">Làm mới chẩn đoán</span>
       </button>
-      <p class="disclaimer">
+
+      <p class="disclaimer full-only">
         ⚕️ Chỉ mang tính chất tham khảo học thuật.<br/>
         Vui lòng thăm khám bác sĩ để có kết quả chính xác.
       </p>
@@ -345,7 +135,9 @@
 
   </aside>
 
-  <!-- ── Main chat ───────────────────────────────────────── -->
+  <!-- ══════════════════════════════════════════════════════
+       MAIN CHAT
+  ══════════════════════════════════════════════════════ -->
   <main class="chat-area" role="main">
 
     <header class="chat-header">
@@ -405,10 +197,7 @@
       </div>
     </div>
 
-    <!-- ════════════════════════════════════════════════════
-         AI LOADING CARD — Thay thế typing indicator cũ
-         Hiển thị khi AI đang xử lý, ẩn khi xong
-    ════════════════════════════════════════════════════ -->
+    <!-- AI Loading Card -->
     <div class="ai-loading-card" id="aiLoadingCard" role="status" aria-label="Đang phân tích">
       <div class="avatar bot-avatar" aria-hidden="true" style="margin-bottom:0;align-self:flex-end">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -423,13 +212,11 @@
       </div>
 
       <div class="loading-inner">
-        <!-- Progress bar ở đỉnh -->
         <div class="loading-progress-track">
           <div class="loading-progress-fill" id="loadingProgressFill"></div>
         </div>
 
         <div class="loading-body">
-          <!-- Stage hiện tại + elapsed time -->
           <div class="loading-stage-row">
             <div class="stage-spinner">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>
@@ -438,7 +225,6 @@
             <span class="stage-elapsed" id="stageElapsed">0s</span>
           </div>
 
-          <!-- Checklist các bước -->
           <div class="loading-steps">
             <div class="loading-step" id="step-nlp">
               <span class="step-icon">🔍</span>
@@ -459,7 +245,6 @@
           </div>
         </div>
 
-        <!-- Health tip ở đáy card -->
         <div class="health-tip-wrap">
           <div class="tip-header">
             <div class="tip-pulse-dot"></div>
@@ -500,17 +285,18 @@
 
 <script>
 /* ═══════════════════════════════════════════════════════════
-   YAI v3.2 — Engaging Loading UX + Smooth Batch Reveal
+   YAI v3.3 — Mini Sidebar + Results Delayed to Done Event
    ═══════════════════════════════════════════════════════════
-   Logic:
-   1. Người dùng gửi → hiện loading card ngay
-   2. SSE "meta" → cập nhật sidebar, step-engine ✓
-   3. SSE "progress" → cập nhật step, progress bar
-   4. SSE "text" → TOÀN BỘ text đến, reveal smooth
-   5. SSE "done" → ẩn loading card
+   SSE Flow:
+   1. User sends → show loading card
+   2. "meta"     → update symptom tags only (NO results yet)
+   3. "progress" → update loading stages
+   4. "text"     → full AI text arrives, reveal smoothly
+   5. "done"     → results arrive → update sidebar WITH delay
+                   so user sees AI text first, sidebar after
    ═══════════════════════════════════════════════════════════ */
 
-// ── Health Tips Data ──────────────────────────────────────
+// ── Health Tips ───────────────────────────────────────────
 const HEALTH_TIPS = [
   "💧 Uống đủ 2 lít nước mỗi ngày giúp cơ thể đào thải độc tố và duy trì các chức năng nội tạng.",
   "🌙 Ngủ đủ 7–9 tiếng mỗi đêm giúp hệ miễn dịch phục hồi và giảm nguy cơ mắc bệnh tim mạch.",
@@ -526,10 +312,10 @@ const HEALTH_TIPS = [
   "☀️ 15 phút phơi nắng sáng (trước 10 giờ) giúp tổng hợp Vitamin D, tốt cho xương và miễn dịch.",
 ];
 
-// ── Init ─────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────
 document.getElementById('welcome-time').textContent = formatTime();
 
-// ── Helpers ──────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────
 function formatTime() {
   return new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 }
@@ -569,22 +355,61 @@ function insertHint(text) {
   if (sidebarOpen) closeSidebar();
 }
 
-// ── Sidebar ───────────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+//  SIDEBAR — Mobile drawer
+// ════════════════════════════════════════════════════════
 let sidebarOpen = false;
+
 function toggleSidebar() { sidebarOpen ? closeSidebar() : openSidebar(); }
+
 function openSidebar() {
   sidebarOpen = true;
   document.getElementById('sidebar').classList.add('sidebar-open');
   document.getElementById('sidebarOverlay').classList.add('show');
   document.body.classList.add('sidebar-active');
 }
+
 function closeSidebar() {
   sidebarOpen = false;
   document.getElementById('sidebar').classList.remove('sidebar-open');
   document.getElementById('sidebarOverlay').classList.remove('show');
   document.body.classList.remove('sidebar-active');
 }
+
 document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
+
+// ════════════════════════════════════════════════════════
+//  SIDEBAR — Desktop mini/full toggle
+// ════════════════════════════════════════════════════════
+let isMini = false;
+
+function toggleMini() {
+  // Only on desktop
+  if (window.innerWidth <= 768) return;
+  isMini = !isMini;
+  document.getElementById('sidebar').classList.toggle('sidebar-mini', isMini);
+  try { localStorage.setItem('yai_sidebar_mini', isMini ? '1' : '0'); } catch(_) {}
+}
+
+// Restore saved state on load (desktop only)
+(function initMiniState() {
+  if (window.innerWidth <= 768) return;
+  try {
+    if (localStorage.getItem('yai_sidebar_mini') === '1') {
+      isMini = true;
+      document.getElementById('sidebar').classList.add('sidebar-mini');
+    }
+  } catch(_) {}
+})();
+
+// Reset mini state if window resizes to mobile
+window.addEventListener('resize', () => {
+  if (window.innerWidth <= 768) {
+    document.getElementById('sidebar').classList.remove('sidebar-mini');
+  } else if (isMini) {
+    document.getElementById('sidebar').classList.add('sidebar-mini');
+  }
+});
 
 // ── Status helpers ────────────────────────────────────────
 function setStatus(text, analysing = false) {
@@ -618,7 +443,6 @@ function appendMessage(role, text = '') {
   container.appendChild(row);
   requestAnimationFrame(() => requestAnimationFrame(() => {
     row.classList.add('msg-visible');
-    // User bubble reveals immediately; bot bubble revealed later
     if (role === 'user') row.querySelector('.bubble-reveal')?.classList.add('revealed');
   }));
   scrollBottom();
@@ -630,24 +454,18 @@ function revealBotMessage(contentDiv, htmlContent) {
   const bubble = contentDiv.closest('.bubble-reveal');
   if (!bubble) { contentDiv.innerHTML = htmlContent; return; }
 
-  // Set content first (hidden)
   contentDiv.innerHTML = htmlContent;
 
-  // Wrap each line/block in staggered span
-  const lines = contentDiv.querySelectorAll('p, blockquote, hr, strong, br');
-  // Simple approach: split inner HTML by <br/> and animate
   const rawLines = htmlContent.split('<br/>');
   if (rawLines.length > 1) {
     contentDiv.innerHTML = rawLines
       .map((ln, i) => `<span class="msg-paragraph" style="display:block;animation-delay:${i * 40}ms">${ln}</span>`)
       .join('');
-    // Trigger visibility
     requestAnimationFrame(() => {
       contentDiv.querySelectorAll('.msg-paragraph').forEach(el => el.classList.add('para-visible'));
     });
   }
 
-  // Reveal bubble container
   requestAnimationFrame(() => {
     bubble.classList.add('revealed');
     scrollBottom();
@@ -656,51 +474,91 @@ function revealBotMessage(contentDiv, htmlContent) {
   });
 }
 
-// ── Sidebar updater ───────────────────────────────────────
+// ════════════════════════════════════════════════════════
+//  SIDEBAR UPDATERS — Split into symptoms + results
+//  so they can be called at different times
+// ════════════════════════════════════════════════════════
+
 const SEVERITY = {
   low:    { color: '#22C55E', bg: '#DCFCE7', label: 'Nhẹ' },
   medium: { color: '#F59E0B', bg: '#FEF3C7', label: 'Trung bình' },
   high:   { color: '#F43F5E', bg: '#FFE4E6', label: 'Nghiêm trọng' },
 };
-function updateSidebar(symptoms, results) {
+
+/**
+ * updateSidebarSymptoms — called on "meta" event (immediately)
+ * Shows symptom tags as soon as NLP extraction is done
+ */
+function updateSidebarSymptoms(symptoms) {
+  if (!Array.isArray(symptoms) || !symptoms.length) return;
+
   const symPanel = document.getElementById('symptom-panel');
+  symPanel.style.display = 'block';
+  document.getElementById('symptom-tags').innerHTML =
+    symptoms.map((s, i) =>
+      `<span class="sym-tag" style="animation-delay:${i * 50}ms">${escapeHTML(s)}</span>`
+    ).join('');
+
+  // Update mini badge
+  const badge = document.getElementById('symMiniBadge');
+  if (badge) badge.textContent = symptoms.length;
+
+  symPanel.classList.add('flash-update');
+  setTimeout(() => symPanel.classList.remove('flash-update'), 600);
+}
+
+/**
+ * updateSidebarResults — called on "done" event (after AI text revealed)
+ * Results appear AFTER the user has seen the AI response text
+ */
+function updateSidebarResults(results) {
+  if (!Array.isArray(results) || !results.length) return;
+
   const resPanel = document.getElementById('result-panel');
-  if (Array.isArray(symptoms) && symptoms.length) {
-    symPanel.style.display = 'block';
-    document.getElementById('symptom-tags').innerHTML =
-      symptoms.map(s => `<span class="sym-tag">${escapeHTML(s)}</span>`).join('');
-    symPanel.classList.add('flash-update');
-    setTimeout(() => symPanel.classList.remove('flash-update'), 600);
+  resPanel.style.display = 'block';
+
+  // Update mini confidence indicator
+  const miniConf = document.getElementById('resMiniConf');
+  if (miniConf && results[0]) {
+    const pct = Math.round((results[0].confidence || 0) * 100);
+    miniConf.textContent = `${pct}%`;
   }
-  if (Array.isArray(results) && results.length) {
-    resPanel.style.display = 'block';
-    document.getElementById('result-cards').innerHTML = results.map((r, i) => {
-      const pct = Math.round((r.confidence || 0) * 100);
-      const sev = SEVERITY[r.severity] || { color: '#94A3B8', bg: '#F1F5F9', label: r.severity };
-      return `<div class="result-card ${i === 0 ? 'result-top' : ''}">
-        <div class="result-header">
-          <span class="result-name">${escapeHTML(r.name_vi || '')}</span>
-          ${i === 0 ? '<span class="result-crown">👑</span>' : ''}
-        </div>
-        <div class="result-bar-wrap">
-          <div class="result-bar" style="width:0%; background:${sev.color}" data-target="${pct}"></div>
-        </div>
-        <div class="result-meta">
-          <span class="conf-pct" style="color:${sev.color}">${pct}%</span>
-          <span class="sev-badge" style="color:${sev.color}; background:${sev.bg}">${sev.label}</span>
-          ${r.see_doctor ? '<span class="doc-badge">🏥 Cần bác sĩ</span>' : ''}
-        </div>
-      </div>`;
-    }).join('');
-    // Animate bars with delay
-    setTimeout(() => {
-      document.querySelectorAll('.result-bar[data-target]').forEach(b => {
-        b.style.width = b.dataset.target + '%';
-      });
-    }, 300);
-    resPanel.classList.add('flash-update');
-    setTimeout(() => resPanel.classList.remove('flash-update'), 600);
-  }
+
+  // Render result cards
+  document.getElementById('result-cards').innerHTML = results.map((r, i) => {
+    const pct = Math.round((r.confidence || 0) * 100);
+    const sev = SEVERITY[r.severity] || { color: '#94A3B8', bg: '#F1F5F9', label: r.severity };
+    return `<div class="result-card ${i === 0 ? 'result-top' : ''}">
+      <div class="result-header">
+        <span class="result-name">${escapeHTML(r.name_vi || '')}</span>
+        ${i === 0 ? '<span class="result-crown">👑</span>' : ''}
+      </div>
+      <div class="result-bar-wrap">
+        <div class="result-bar" style="width:0%; background:${sev.color}" data-target="${pct}"></div>
+      </div>
+      <div class="result-meta">
+        <span class="conf-pct" style="color:${sev.color}">${pct}%</span>
+        <span class="sev-badge" style="color:${sev.color}; background:${sev.bg}">${sev.label}</span>
+        ${r.see_doctor ? '<span class="doc-badge">🏥 Cần bác sĩ</span>' : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Animate bars with delay
+  setTimeout(() => {
+    document.querySelectorAll('.result-bar[data-target]').forEach(b => {
+      b.style.width = b.dataset.target + '%';
+    });
+  }, 400);
+
+  resPanel.classList.add('flash-update');
+  setTimeout(() => resPanel.classList.remove('flash-update'), 600);
+}
+
+/** Legacy combined updater — for JSON fallback responses */
+function updateSidebar(symptoms, results) {
+  if (symptoms) updateSidebarSymptoms(symptoms);
+  if (results)  updateSidebarResults(results);
 }
 
 // ── Reset ─────────────────────────────────────────────────
@@ -709,22 +567,26 @@ async function resetChat() {
   document.getElementById('messages').innerHTML = '';
   document.getElementById('symptom-panel').style.display = 'none';
   document.getElementById('result-panel').style.display  = 'none';
+  // Reset mini indicators
+  const badge = document.getElementById('symMiniBadge');
+  if (badge) badge.textContent = '0';
+  const conf = document.getElementById('resMiniConf');
+  if (conf) conf.textContent = '—';
+
   hideLoadingCard();
   setStatus('Đang hoạt động');
   appendMessage('bot', '✅ **Đã làm mới phiên chẩn đoán.**\n\nBạn hãy mô tả lại triệu chứng mới nhé!');
   if (sidebarOpen) closeSidebar();
 }
 
-// ══════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
 //  LOADING CARD ENGINE
-// ══════════════════════════════════════════════════════════
-
+// ════════════════════════════════════════════════════════
 let _tipInterval  = null;
 let _elapsedTimer = null;
 let _tipIndex     = 0;
 let _elapsedSec   = 0;
 
-// Steps config: id, activatedAtPct
 const STEPS = [
   { id: 'step-nlp',    pct: 0  },
   { id: 'step-engine', pct: 20 },
@@ -735,22 +597,15 @@ const STEPS = [
 function showLoadingCard() {
   const card = document.getElementById('aiLoadingCard');
   card.classList.add('visible');
-
-  // Scroll to loading card
   requestAnimationFrame(() => scrollBottom(true));
 
-  // Reset all steps
   STEPS.forEach(s => {
     const el = document.getElementById(s.id);
     el.classList.remove('step-done', 'step-active');
   });
-  // Activate first step
   document.getElementById('step-nlp').classList.add('step-active');
-
-  // Reset progress bar
   setLoadingProgress(5);
 
-  // Start elapsed timer
   _elapsedSec = 0;
   document.getElementById('stageElapsed').textContent = '0s';
   clearInterval(_elapsedTimer);
@@ -762,7 +617,6 @@ function showLoadingCard() {
         : `${_elapsedSec}s`;
   }, 1000);
 
-  // Start health tips rotation
   _tipIndex = Math.floor(Math.random() * HEALTH_TIPS.length);
   showTip(_tipIndex);
   buildTipDots();
@@ -790,15 +644,12 @@ function setLoadingStage(label, pct) {
     stageEl.textContent = label;
     stageEl.style.opacity = '1';
   }, 200);
-
   setLoadingProgress(pct);
 
-  // Activate/complete steps based on pct
   STEPS.forEach((s, i) => {
     const el = document.getElementById(s.id);
     el.classList.remove('step-done', 'step-active');
     if (pct > s.pct) {
-      // Find if next step has started
       const nextPct = STEPS[i + 1] ? STEPS[i + 1].pct : 101;
       if (pct >= nextPct) {
         el.classList.add('step-done');
@@ -821,7 +672,6 @@ function showTip(idx) {
   const tipEl = document.getElementById('tipText');
   const realIdx = idx % HEALTH_TIPS.length;
   tipEl.textContent = HEALTH_TIPS[realIdx];
-  // Update dots
   document.querySelectorAll('.tip-dot').forEach((d, i) => {
     d.classList.toggle('active', i === realIdx % 6);
   });
@@ -844,9 +694,9 @@ function rotateTip() {
   }, 400);
 }
 
-// ══════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
 //  CORE — SSE HANDLER
-// ══════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
 async function sendMessage() {
   const input   = document.getElementById('userInput');
   const sendBtn = document.getElementById('sendBtn');
@@ -888,43 +738,49 @@ async function sendMessage() {
         buffer = parts.pop();
 
         for (const part of parts) {
-          // SSE comment (heartbeat) — bỏ qua
-          if (part.startsWith(':')) continue;
+          if (part.startsWith(':')) continue;   // SSE heartbeat
           if (!part.startsWith('data: ')) continue;
 
           let data;
           try { data = JSON.parse(part.slice(6)); } catch { continue; }
 
-          // ── meta: sidebar update + stage update ────────
+          // ── meta: symptoms ONLY ────────────────────────
+          // Results are intentionally NOT in this event
           if (data.type === 'meta') {
-            updateSidebar(data.symptoms, data.results);
+            // Only update symptoms, not results
+            updateSidebarSymptoms(data.symptoms);
             setLoadingStage('Đang tra cứu cơ sở dữ liệu y khoa…', 20);
-            // Prepare invisible bot bubble
+            // Pre-create bot bubble (hidden, reveal later)
             botContentDiv = appendMessage('bot', '');
           }
 
-          // ── progress: loading stage update ────────────
+          // ── progress: loading stage ────────────────────
           else if (data.type === 'progress') {
             setLoadingStage(data.stage, data.pct);
           }
 
-          // ── text: FULL response arrived → reveal ───────
+          // ── text: full AI response → reveal smoothly ───
           else if (data.type === 'text') {
             hideLoadingCard();
-            setLoadingStage('Xong!', 100);
-
             if (!botContentDiv) {
               botContentDiv = appendMessage('bot', '');
             }
-
-            // Smooth reveal with staggered paragraphs
             revealBotMessage(botContentDiv, renderMarkdown(data.content));
           }
 
-          // ── done ───────────────────────────────────────
+          // ── done: results arrive AFTER text ────────────
+          // Small delay so sidebar update happens after user
+          // has started reading the AI response text
           else if (data.type === 'done') {
             hideLoadingCard();
             setStatus('Đang hoạt động', false);
+
+            if (data.results && data.results.length) {
+              // 600ms delay: sidebar updates as user reads AI text
+              setTimeout(() => {
+                updateSidebarResults(data.results);
+              }, 600);
+            }
           }
         }
       }
@@ -934,7 +790,8 @@ async function sendMessage() {
       const data = await res.json();
       hideLoadingCard();
       if (data.reply) appendMessage('bot', data.reply);
-      if (data.symptoms || data.results) updateSidebar(data.symptoms, data.results);
+      if (data.symptoms) updateSidebarSymptoms(data.symptoms);
+      if (data.results)  updateSidebarResults(data.results);
     }
 
   } catch (err) {

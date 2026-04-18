@@ -8,13 +8,14 @@
 /* ── Design Tokens ──────────────────────────────────────── */
 :root {
   /* ── Backgrounds ── */
-  --bg:           #e8f4fd;          /* cool sky tint page bg  */
+  --bg:           #e8f4fd;
   --bg-mesh:      radial-gradient(ellipse 80% 60% at 20% 0%, #d7efff 0%, transparent 60%),
                   radial-gradient(ellipse 60% 50% at 80% 100%, #cce9fb 0%, transparent 60%),
                   #e8f4fd;
   --surface:      #ffffff;
   --surface-2:    #f4f9fe;
   --surface-3:    #eaf4fc;
+  --bg-bubble:    #f8fafc;
 
   /* ── Borders ── */
   --border:       #c9e3f5;
@@ -22,8 +23,8 @@
   --border-focus: #56aee8;
 
   /* ── Core accent ── */
-  --accent:          #1a8fd1;       /* primary interactive blue  */
-  --accent-light:    #d7efff;       /* chip hover, tag bg        */
+  --accent:          #1a8fd1;
+  --accent-light:    #d7efff;
   --accent-lighter:  #eaf6ff;
   --accent-dark:     #0d6fa8;
   --accent-grad:     linear-gradient(135deg, #38b6f5 0%, #1a8fd1 100%);
@@ -51,9 +52,10 @@
   --shadow-btn: 0 4px 12px rgba(26,143,209,.30);
 
   /* ── Layout ── */
-  --sidebar-w:  295px;
-  --header-h:   66px;
-  --input-h:    72px;
+  --sidebar-w:      295px;
+  --sidebar-mini-w: 64px;
+  --header-h:       66px;
+  --input-h:        72px;
 
   /* ── Radius ── */
   --r-xs:  6px;
@@ -93,7 +95,6 @@ body {
   overflow: hidden;
 }
 
-/* iOS safe area */
 body.sidebar-active {
   overflow: hidden;
   position: fixed;
@@ -104,7 +105,7 @@ body.sidebar-active {
 .app-shell {
   display: flex;
   height: 100%;
-  height: 100dvh; /* dynamic viewport height — iOS Safari fix */
+  height: 100dvh;
   overflow: hidden;
   position: relative;
 }
@@ -130,7 +131,7 @@ body.sidebar-active {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   SIDEBAR
+   SIDEBAR — Base
 ═══════════════════════════════════════════════════════════ */
 .sidebar {
   width: var(--sidebar-w);
@@ -144,9 +145,9 @@ body.sidebar-active {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   z-index: 200;
-  transition: transform .3s var(--ease);
+  /* Smooth width transition for mini toggle */
+  transition: width .32s var(--ease);
 
-  /* Scrollbar */
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
@@ -154,6 +155,200 @@ body.sidebar-active {
 .sidebar::-webkit-scrollbar { width: 4px; }
 .sidebar::-webkit-scrollbar-track { background: transparent; }
 .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* ═══════════════════════════════════════════════════════════
+   SIDEBAR — Mini collapsed state (desktop only)
+═══════════════════════════════════════════════════════════ */
+.sidebar.sidebar-mini {
+  width: var(--sidebar-mini-w);
+  overflow: hidden;
+}
+
+/* Elements hidden in mini mode */
+.sidebar.sidebar-mini .full-only {
+  display: none !important;
+}
+
+/* Elements shown only in mini mode */
+.mini-only {
+  display: none;
+}
+
+.sidebar.sidebar-mini .mini-only {
+  display: flex;
+}
+
+/* Desktop-only elements (collapse button etc.) */
+.desktop-only {
+  /* visible on desktop */
+}
+
+/* ── Mini brand area ────────────────────────────────────── */
+.sidebar.sidebar-mini .sidebar-brand {
+  padding: 18px 0;
+  justify-content: center;
+  gap: 0;
+  background: linear-gradient(180deg, var(--accent-lighter) 0%, transparent 100%);
+}
+
+.sidebar.sidebar-mini .brand-icon {
+  width: 38px;
+  height: 38px;
+}
+
+.sidebar.sidebar-mini .brand-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ── Mini section layout ────────────────────────────────── */
+.sidebar.sidebar-mini .sidebar-section {
+  padding: 14px 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* ── Mini engine dots ───────────────────────────────────── */
+.mini-engine-dots {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.mini-engine-dots .engine-dot {
+  width: 8px;
+  height: 8px;
+}
+
+/* ── Mini symptom indicator ─────────────────────────────── */
+.mini-sym-indicator {
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  position: relative;
+  cursor: default;
+}
+
+.mini-sym-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.mini-sym-badge {
+  font-size: 10px;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--accent);
+  background: var(--accent-light);
+  border: 1px solid var(--border-focus);
+  border-radius: var(--r-pill);
+  padding: 1px 6px;
+  min-width: 20px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* ── Mini result indicator ──────────────────────────────── */
+.mini-res-indicator {
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: default;
+}
+
+.mini-res-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.mini-res-conf {
+  font-size: 11px;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--accent);
+  background: var(--accent-light);
+  border: 1px solid var(--border-focus);
+  border-radius: var(--r-pill);
+  padding: 1px 5px;
+  line-height: 1.4;
+}
+
+/* ── Mini footer ────────────────────────────────────────── */
+.sidebar.sidebar-mini .sidebar-footer {
+  padding: 12px 0;
+  align-items: center;
+}
+
+.sidebar.sidebar-mini .btn-collapse {
+  width: 38px;
+  height: 36px;
+  padding: 0;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  margin-bottom: 8px;
+}
+
+.sidebar.sidebar-mini .btn-reset {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+  margin-bottom: 0;
+}
+
+/* ── Collapse button ────────────────────────────────────── */
+.btn-collapse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .18s var(--ease);
+  margin-bottom: 8px;
+  box-shadow: var(--shadow-xs);
+  touch-action: manipulation;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.btn-collapse svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  transition: transform .32s var(--ease);
+}
+
+/* Flip arrow when in mini mode */
+.sidebar.sidebar-mini .btn-collapse svg {
+  transform: rotate(180deg);
+}
+
+@media (hover: hover) {
+  .btn-collapse:hover {
+    background: var(--accent-light);
+    border-color: var(--border-focus);
+    color: var(--accent);
+  }
+}
+
+.btn-collapse:active {
+  background: var(--accent-light);
+  color: var(--accent);
+  transform: scale(.97);
+}
 
 /* ── Brand ──────────────────────────────────────────────── */
 .sidebar-brand {
@@ -163,6 +358,7 @@ body.sidebar-active {
   padding: 22px 20px 20px;
   border-bottom: 1px solid var(--border-soft);
   background: linear-gradient(180deg, var(--accent-lighter) 0%, transparent 100%);
+  transition: padding .32s var(--ease), gap .32s var(--ease);
 }
 
 .brand-icon {
@@ -175,12 +371,14 @@ body.sidebar-active {
   align-items: center;
   justify-content: center;
   box-shadow: var(--shadow-btn);
+  transition: width .32s var(--ease), height .32s var(--ease);
 }
 
 .brand-icon svg {
   width: 24px;
   height: 24px;
   color: #fff;
+  transition: width .32s var(--ease), height .32s var(--ease);
 }
 
 .brand-text { min-width: 0; }
@@ -218,6 +416,7 @@ body.sidebar-active {
 .sidebar-section {
   padding: 18px 20px;
   border-bottom: 1px solid var(--border-soft);
+  transition: padding .32s var(--ease);
 }
 
 .section-label {
@@ -314,7 +513,7 @@ body.sidebar-active {
 
 .result-bar {
   height: 100%;
-  width: 0;                    /* starts at 0, animated to actual width */
+  width: 0;
   border-radius: var(--r-pill);
   transition: width .8s var(--ease);
 }
@@ -401,6 +600,9 @@ body.sidebar-active {
   padding: 18px 20px;
   border-top: 1px solid var(--border-soft);
   background: linear-gradient(180deg, transparent 0%, var(--accent-lighter) 100%);
+  display: flex;
+  flex-direction: column;
+  transition: padding .32s var(--ease);
 }
 
 .btn-reset {
@@ -424,7 +626,7 @@ body.sidebar-active {
   touch-action: manipulation;
 }
 
-.btn-reset svg { width: 17px; height: 17px; }
+.btn-reset svg { width: 17px; height: 17px; flex-shrink: 0; }
 
 @media (hover: hover) {
   .btn-reset:hover {
@@ -447,6 +649,17 @@ body.sidebar-active {
   text-align: center;
   line-height: 1.65;
   font-weight: 500;
+}
+
+/* ── Sidebar flash animation ────────────────────────────── */
+@keyframes sidebarFlash {
+  0%   { background: rgba(26,143,209,.08); }
+  100% { background: transparent; }
+}
+
+.sidebar-section.flash-update {
+  animation: sidebarFlash .5s ease forwards;
+  border-radius: 8px;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -582,8 +795,6 @@ body.sidebar-active {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
-
-  /* Subtle bg pattern */
   background-image:
     radial-gradient(circle at 15% 20%, rgba(215,239,255,.55) 0%, transparent 45%),
     radial-gradient(circle at 85% 80%, rgba(204,233,251,.40) 0%, transparent 40%);
@@ -670,7 +881,6 @@ body.sidebar-active {
 
 .bot-bubble p       { margin-bottom: 7px; }
 .bot-bubble p:last-of-type { margin-bottom: 0; }
-
 .bot-bubble strong  { color: var(--text-primary); font-weight: 700; }
 
 .bot-bubble hr {
@@ -686,6 +896,16 @@ body.sidebar-active {
   padding: 1px 7px;
   border-radius: var(--r-xs);
   font-size: 13.5px;
+}
+
+.bot-bubble blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 6px 12px;
+  margin: 8px 0;
+  background: var(--accent-lighter);
+  border-radius: 0 var(--r-xs) var(--r-xs) 0;
+  font-size: 13.5px;
+  color: var(--text-secondary);
 }
 
 .bubble-time {
@@ -757,7 +977,6 @@ body.sidebar-active {
   -webkit-backdrop-filter: blur(16px);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
-  /* iOS home indicator safe area */
   padding-bottom: max(22px, env(safe-area-inset-bottom));
 }
 
@@ -784,7 +1003,7 @@ body.sidebar-active {
   border: none;
   outline: none;
   font-family: inherit;
-  font-size: 15px;        /* 15px+ prevents iOS auto-zoom */
+  font-size: 16px; /* 16px prevents iOS auto-zoom */
   color: var(--text-primary);
   resize: none;
   line-height: 1.5;
@@ -824,9 +1043,7 @@ body.sidebar-active {
   }
 }
 
-.send-btn:active:not(:disabled) {
-  transform: scale(.93);
-}
+.send-btn:active:not(:disabled) { transform: scale(.93); }
 
 .send-btn:disabled {
   background: var(--border);
@@ -847,7 +1064,6 @@ body.sidebar-active {
 
 /* ═══════════════════════════════════════════════════════════
    RESPONSIVE — Mobile First
-   Breakpoints: 768px (tablet), 480px (small phones)
 ═══════════════════════════════════════════════════════════ */
 
 /* ── Tablet & below ─────────────────────────────────────── */
@@ -856,7 +1072,28 @@ body.sidebar-active {
     --header-h: 58px;
   }
 
-  /* Sidebar slides in as drawer */
+  /* Hide desktop-only elements on mobile */
+  .desktop-only {
+    display: none !important;
+  }
+
+  /* On mobile, mini mode should NOT affect width */
+  .sidebar.sidebar-mini {
+    width: min(86%, 320px) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Show all content on mobile even if sidebar-mini is set */
+  .sidebar.sidebar-mini .full-only {
+    display: revert !important;
+  }
+
+  .sidebar.sidebar-mini .mini-only {
+    display: none !important;
+  }
+
+  /* Mobile drawer */
   .sidebar {
     position: fixed;
     top: 0;
@@ -866,8 +1103,9 @@ body.sidebar-active {
     transform: translateX(-100%);
     box-shadow: none;
     z-index: 200;
-    /* Safe area on left for notch devices */
     padding-left: env(safe-area-inset-left, 0);
+    /* Override transition for drawer slide (faster) */
+    transition: transform .28s var(--ease);
   }
 
   .sidebar.sidebar-open {
@@ -881,11 +1119,7 @@ body.sidebar-active {
   /* Header */
   .chat-header { padding: 0 14px; gap: 10px; }
   .header-title { font-size: 15.5px; }
-
-  /* Hide desktop-only pill */
   .engine-pill { display: none; }
-
-  /* Smaller header icon */
   .header-icon { width: 34px; height: 34px; }
   .header-icon svg { width: 18px; height: 18px; }
 
@@ -915,33 +1149,43 @@ body.sidebar-active {
   .typing-indicator { padding: 0 14px 10px; }
   .typing-label { display: none; }
 
-  /* Input */
+  /* Input — iPhone optimized */
   .input-bar {
     padding: 10px 12px;
-    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    padding-bottom: max(18px, env(safe-area-inset-bottom));
   }
 
   .input-wrapper {
     border-radius: var(--r-xl);
-    padding: 6px 6px 6px 14px;
+    padding: 7px 7px 7px 16px;
   }
 
   .send-btn {
-    width: 38px;
-    height: 38px;
+    width: 40px;
+    height: 40px;
+    /* Minimum 44pt tap target */
+    min-width: 44px;
+    min-height: 44px;
+    width: 44px;
+    height: 44px;
   }
 
-  .send-btn svg { width: 17px; height: 17px; }
+  .send-btn svg { width: 18px; height: 18px; }
 
-  /* Hide keyboard shortcut hint */
   .input-hint { display: none; }
 
-  /* Sidebar chips — slightly larger tap targets */
-  .chip { padding: 9px 14px; font-size: 13px; }
+  /* Sidebar chips */
+  .chip { padding: 10px 14px; font-size: 13px; min-height: 40px; }
+
+  /* Sidebar footer on mobile */
+  .sidebar-footer { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+
+  /* Btn reset bigger tap target on mobile */
+  .btn-reset { padding: 13px 16px; min-height: 48px; }
 }
 
-/* ── Small phones (≤ 390px) ─────────────────────────────── */
-@media (max-width: 390px) {
+/* ── iPhone 6.1" (390px) ────────────────────────────────── */
+@media (max-width: 393px) {
   .messages { padding: 14px 10px; }
 
   .bubble {
@@ -949,7 +1193,24 @@ body.sidebar-active {
     padding: 10px 12px;
   }
 
-  .msg-row { gap: 8px; }
+  .msg-row {
+    max-width: 95%;
+    gap: 8px;
+  }
+
+  .chat-header { padding: 0 10px; gap: 8px; }
+
+  .sym-tag { font-size: 11px; padding: 4px 9px; }
+  .result-name { font-size: 12.5px; }
+}
+
+/* ── iPhone 6.7" (430px) ────────────────────────────────── */
+@media (min-width: 394px) and (max-width: 430px) {
+  .messages { padding: 16px 12px; }
+
+  .msg-row { max-width: 93%; }
+
+  .bubble { font-size: 14px; }
 }
 
 /* ── Landscape on phones ────────────────────────────────── */
@@ -963,7 +1224,7 @@ body.sidebar-active {
 
 /* ── Desktop large ─────────────────────────────────────── */
 @media (min-width: 1400px) {
-  :root { --sidebar-w: 320px; }
+  :root { --sidebar-w: 310px; }
 
   .messages { padding: 32px 48px; }
 
@@ -977,3 +1238,179 @@ body.sidebar-active {
     transition-duration: .01ms !important;
   }
 }
+
+.ai-loading-card {
+      display: none;
+      flex-direction: column;
+      gap: 0;
+      padding: 0 16px 16px;
+      max-width: 520px;
+    }
+    .ai-loading-card.visible {
+      display: flex;
+      animation: cardSlideIn .35s cubic-bezier(.22,1,.36,1) both;
+    }
+    @keyframes cardSlideIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .loading-inner {
+      background: var(--bg-bubble, #f8fafc);
+      border: 1px solid var(--border-soft, #e2e8f0);
+      border-radius: 16px 16px 16px 4px;
+      overflow: hidden;
+      box-shadow: 0 2px 12px rgba(0,0,0,.06);
+    }
+
+    .loading-progress-track {
+      height: 3px;
+      background: var(--border-soft, #e2e8f0);
+      position: relative;
+      overflow: hidden;
+    }
+    .loading-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #1a8fd1, #06b6d4, #1a8fd1);
+      background-size: 200% 100%;
+      border-radius: 0 2px 2px 0;
+      width: 0%;
+      transition: width .8s cubic-bezier(.4,0,.2,1);
+      animation: progressShimmer 2s linear infinite;
+    }
+    @keyframes progressShimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    .loading-body { padding: 16px 18px 14px; }
+
+    .loading-stage-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .stage-spinner {
+      width: 20px; height: 20px;
+      flex-shrink: 0; position: relative;
+    }
+    .stage-spinner svg {
+      width: 100%; height: 100%;
+      animation: spinnerRotate 1.2s linear infinite;
+    }
+    @keyframes spinnerRotate { to { transform: rotate(360deg); } }
+    .stage-spinner svg circle {
+      fill: none;
+      stroke: var(--accent, #1a8fd1);
+      stroke-width: 2.5;
+      stroke-dasharray: 40 20;
+      stroke-linecap: round;
+    }
+    .stage-label {
+      font-size: 13px; font-weight: 600;
+      color: var(--text-primary, #1e293b);
+      transition: all .4s ease;
+    }
+    .stage-elapsed {
+      margin-left: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; color: var(--text-muted, #94a3b8);
+      background: var(--border-soft, #f1f5f9);
+      padding: 2px 7px; border-radius: 20px;
+      min-width: 42px; text-align: center;
+    }
+
+    .loading-steps { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+    .loading-step {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--text-muted, #94a3b8);
+      transition: color .3s ease, opacity .3s ease; opacity: .5;
+    }
+    .loading-step.step-done  { color: #22c55e; opacity: 1; }
+    .loading-step.step-active { color: var(--accent, #1a8fd1); opacity: 1; font-weight: 600; }
+    .step-icon { font-size: 13px; width: 18px; text-align: center; flex-shrink: 0; }
+
+    .health-tip-wrap {
+      border-top: 1px solid var(--border-soft, #e2e8f0);
+      padding: 11px 18px 13px;
+      background: linear-gradient(135deg, rgba(26,143,209,.04) 0%, rgba(6,182,212,.04) 100%);
+    }
+    .tip-header {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .8px;
+      color: var(--accent, #1a8fd1); margin-bottom: 6px; opacity: .8;
+    }
+    .tip-pulse-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--accent, #1a8fd1);
+      animation: tipDotPulse 2s ease infinite;
+    }
+    @keyframes tipDotPulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50%       { transform: scale(1.6); opacity: .6; }
+    }
+    .tip-text {
+      font-size: 12.5px; color: var(--text-secondary, #475569);
+      line-height: 1.55; min-height: 36px;
+      transition: opacity .4s ease, transform .4s ease;
+    }
+    .tip-text.tip-exit   { opacity: 0; transform: translateY(-6px); }
+    .tip-text.tip-enter  { opacity: 0; transform: translateY(6px); }
+    .tip-text.tip-visible { opacity: 1; transform: translateY(0); }
+    .tip-counter { display: flex; gap: 4px; margin-top: 8px; }
+    .tip-dot {
+      width: 4px; height: 4px; border-radius: 50%;
+      background: var(--border-soft, #cbd5e1);
+      transition: background .3s, transform .3s;
+    }
+    .tip-dot.active { background: var(--accent, #1a8fd1); transform: scale(1.4); }
+
+    /* ══════════════════════════════════════════════════════
+       REVEAL ANIMATION
+    ══════════════════════════════════════════════════════ */
+
+    .bubble-reveal {
+      opacity: 0;
+      transform: translateY(8px) scale(.99);
+      transition:
+        opacity .5s cubic-bezier(.22,1,.36,1),
+        transform .5s cubic-bezier(.22,1,.36,1);
+    }
+    .bubble-reveal.revealed { opacity: 1; transform: translateY(0) scale(1); }
+
+    .msg-paragraph {
+      opacity: 0; transform: translateY(5px); animation: none;
+    }
+    .msg-paragraph.para-visible {
+      animation: paraFadeIn .4s cubic-bezier(.22,1,.36,1) both;
+    }
+    @keyframes paraFadeIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .result-bar { transition: width 1s cubic-bezier(.4,0,.2,1); }
+
+    /* ══════════════════════════════════════════════════════
+       RESULTS REVEAL — kết quả sidebar slide in sau AI text
+    ══════════════════════════════════════════════════════ */
+    @keyframes resultCardIn {
+      from { opacity: 0; transform: translateX(-10px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .result-card {
+      animation: resultCardIn .4s cubic-bezier(.22,1,.36,1) both;
+    }
+    .result-card:nth-child(1) { animation-delay: 0ms; }
+    .result-card:nth-child(2) { animation-delay: 80ms; }
+    .result-card:nth-child(3) { animation-delay: 160ms; }
+
+    @keyframes symTagIn {
+      from { opacity: 0; transform: scale(.85); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+    .sym-tag {
+      animation: symTagIn .3s cubic-bezier(.22,1,.36,1) both;
+    }

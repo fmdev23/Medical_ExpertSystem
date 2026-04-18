@@ -1,28 +1,19 @@
 """
 =============================================================
-  FLASK APP v3.2 — Medical Chatbot (Batch SSE Response)
+  FLASK APP v3.3 — Medical Chatbot (Results Delayed to Done)
 =============================================================
-  Thay đổi so với v3.1:
+  Thay đổi so với v3.2:
 
-  [1] BATCH RESPONSE (không stream từng token)
-      → LLM vẫn được gọi qua generator nhưng text được
-        gom toàn bộ trước khi gửi về client
-      → Client nhận 1 event "text" duy nhất với full content
-      → Tránh hiệu ứng stream-by-token tốn thời gian hiển thị
-      → Kết hợp với reveal animation mượt ở frontend
+  [1] SIDEBAR RESULTS DELAYED
+      → Event "meta" KHÔNG còn gửi results
+      → Event "done" gửi results SAU khi AI text đã reveal
+      → Người dùng thấy kết quả sidebar CÙNG LÚC đọc nội dung,
+        không phải trước khi AI gen xong
 
-  [2] KEEP-ALIVE HEARTBEAT
-      → Trong khi LLM đang gen, server gửi heartbeat
-        comment SSE (": ping") mỗi 5s để tránh timeout
-      → EventSource / fetch stream không bị close sớm
-
-  [3] GIỮ NGUYÊN TỪ v3.1
+  [2] GIỮ NGUYÊN TỪ v3.2
+      → Batch SSE response
+      → Keep-alive heartbeat
       → In-memory session store
-      → Smart follow-up engine
-      → Denied symptom tracking
-      → Progressive diagnosis
-      → LLM fallback diagnosis
-      → Graceful fallback
 =============================================================
 """
 
@@ -199,17 +190,14 @@ def pick_followup_question(conv: Dict, inference: Dict) -> Optional[str]:
 # ─── SSE HELPERS ──────────────────────────────────────────
 
 def _sse(data: Dict) -> str:
-    """Format một SSE data event."""
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 def _sse_heartbeat() -> str:
-    """SSE comment — giữ kết nối sống, không trigger onmessage."""
     return ": ping\n\n"
 
 
 def _sse_progress(stage: str, pct: int) -> str:
-    """Gửi progress update cho frontend hiển thị loading stages."""
     return _sse({"type": "progress", "stage": stage, "pct": pct})
 
 
@@ -222,11 +210,6 @@ def index():
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
-    """
-    Endpoint chính — trả về SSE stream.
-    Text LLM được gom TOÀN BỘ rồi gửi 1 lần (batch),
-    kết hợp heartbeat giữ connection trong khi đợi.
-    """
     try:
         data    = request.get_json(silent=True) or {}
         message = data.get("message", "").strip()
@@ -241,7 +224,6 @@ def chat():
         conv["turn_count"] += 1
         intent = detect_intent(message)
 
-        # ── GREETING ──────────────────────────────────────
         if intent == "greeting" and conv["turn_count"] == 1:
             save_session(conv)
             return jsonify({
@@ -250,7 +232,6 @@ def chat():
                 "intent":   intent, "turn": conv["turn_count"],
             })
 
-        # ── RESET ─────────────────────────────────────────
         if intent == "reset":
             sid = session.get("_sid")
             if sid and sid in _conversations:
@@ -261,7 +242,6 @@ def chat():
                 "intent":   "reset", "turn": 0,
             })
 
-        # ── HELP ──────────────────────────────────────────
         if intent == "help":
             save_session(conv)
             return jsonify({
@@ -276,9 +256,7 @@ def chat():
                 "intent":   "help", "turn": conv["turn_count"],
             })
 
-        # ════════════════════════════════════════════════
-        #  STEP 1 — NLP EXTRACTION
-        # ════════════════════════════════════════════════
+        # STEP 1 — NLP
         nlp_result = extract_symptoms_hybrid(message)
         _merge_nlp_into_session(conv, nlp_result)
 
@@ -287,7 +265,6 @@ def chat():
         intens    = conv["intensities"]
         mentions  = conv["mention_counts"]
 
-        # ── No symptoms found ─────────────────────────────
         if not confirmed:
             clarify = (
                 "Tôi chưa nhận được triệu chứng cụ thể từ mô tả của bạn.\n\n"
@@ -306,9 +283,7 @@ def chat():
                 "intent":   "symptom", "turn": conv["turn_count"],
             })
 
-        # ════════════════════════════════════════════════
-        #  STEP 2 — RULE ENGINE
-        # ════════════════════════════════════════════════
+        # STEP 2 — RULE ENGINE
         inference = run_inference(
             symptoms        = confirmed,
             denied_symptoms = denied,
@@ -316,9 +291,7 @@ def chat():
             mention_counts  = mentions,
         )
 
-        # ════════════════════════════════════════════════
-        #  STEP 3 — LLM FALLBACK DIAGNOSIS
-        # ════════════════════════════════════════════════
+        # STEP 3 — LLM FALLBACK DIAGNOSIS
         llm_fallback = False
         if inference.get("needs_llm"):
             llm_result = call_llm_diagnosis(confirmed)
@@ -350,34 +323,29 @@ def chat():
         conv["last_diseases"] = [r["disease"] for r in inference["results"]]
         save_session(conv)
 
-        # Snapshot cho generator
         _inference_results = list(inference["results"])
         _uncertain         = inference["uncertain"]
         _chat_history      = list(conv.get("chat_history", []))
         _sid               = session.get("_sid")
 
-        # ════════════════════════════════════════════════
-        #  STEP 4 — SSE: META → BATCH TEXT → DONE
-        #  Dùng threading.Event để gom text trong background
-        # ════════════════════════════════════════════════
-
+        # STEP 4 — SSE STREAM
         def generate():
             import time
 
-            # ── Event 1: metadata ngay lập tức ───────────
+            # ── Event 1: meta — symptoms ONLY, NO results ─────
+            # Results sẽ được gửi trong event "done" sau khi
+            # AI gen xong text, tránh lộ kết quả quá sớm
             yield _sse({
                 "type":         "meta",
                 "symptoms":     sym_display,
                 "denied":       denied_display,
-                "results":      result_summary,
                 "uncertain":    _uncertain,
                 "llm_fallback": llm_fallback,
                 "intent":       "symptom",
                 "turn":         conv["turn_count"],
+                # "results" intentionally omitted here
             })
 
-            # ── Gom toàn bộ text từ LLM ──────────────────
-            # Gửi progress stages để frontend hiển thị loading
             yield _sse_progress("Đang tra cứu cơ sở dữ liệu y khoa…", 20)
 
             accumulated: List[str] = []
@@ -385,7 +353,6 @@ def chat():
 
             if _inference_results:
                 try:
-                    chunk_count = 0
                     last_heartbeat = time.time()
                     last_progress  = time.time()
                     progress_stages = [
@@ -408,15 +375,12 @@ def chat():
                     ):
                         accumulated.append(chunk)
                         stream_ok = True
-                        chunk_count += 1
                         now = time.time()
 
-                        # Heartbeat mỗi 4 giây để giữ kết nối
                         if now - last_heartbeat >= 4:
                             yield _sse_heartbeat()
                             last_heartbeat = now
 
-                        # Progress update mỗi ~5 giây
                         if now - last_progress >= 5 and stage_idx < len(progress_stages):
                             pct, label = progress_stages[stage_idx]
                             yield _sse_progress(label, pct)
@@ -426,7 +390,6 @@ def chat():
                 except Exception as stream_err:
                     app.logger.warning(f"Stream error mid-way: {stream_err}")
 
-            # ── Fallback nếu LLM không trả về gì ─────────
             if not stream_ok:
                 fallback_text = build_response_text(
                     inference_result = inference,
@@ -439,18 +402,23 @@ def chat():
                     fallback_text += f"\n\n---\n💬 **Câu hỏi thêm:** {followup}"
                 accumulated.append(fallback_text)
 
-            # ── Gửi TOÀN BỘ text 1 lần duy nhất ─────────
             full_reply = "".join(accumulated)
 
             yield _sse_progress("Xong! Đang hiển thị kết quả…", 100)
+
+            # ── Text event: full AI response ───────────────────
             yield _sse({"type": "text", "content": full_reply})
 
-            # ── Lưu history ───────────────────────────────
+            # Lưu history
             if _sid and _sid in _conversations:
                 _update_chat_history(_conversations[_sid], message, full_reply)
 
-            # ── Done ──────────────────────────────────────
-            yield _sse({"type": "done"})
+            # ── Done event: results gửi ở đây để sidebar cập
+            #    nhật SAU khi người dùng đã thấy text AI ─────────
+            yield _sse({
+                "type":    "done",
+                "results": result_summary,
+            })
 
         return Response(
             stream_with_context(generate()),
@@ -482,15 +450,17 @@ def reset():
 
 @app.route("/api/status")
 def status():
+    import llm as llm_module
+    backend = "Google Gemini" if llm_module.USE_GEMINI else "LM Studio (local)"
+    model   = llm_module.GEMINI_MODEL if llm_module.USE_GEMINI else llm_module.LOCAL_MODEL
     return jsonify({
-        "status":           "running",
-        "version":          "3.2",
-        "llm":              "LM Studio (local)",
-        "model":            "gemma-4-e2b",
-        "streaming":        False,
-        "batch_response":   True,
-        "active_sessions":  len(_conversations),
-        "time":             datetime.now().isoformat(),
+        "status":          "running",
+        "version":         "3.3",
+        "llm_backend":     backend,
+        "model":           model,
+        "batch_response":  True,
+        "active_sessions": len(_conversations),
+        "time":            datetime.now().isoformat(),
     })
 
 
@@ -510,11 +480,16 @@ def debug_session():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
 
+    import llm as llm_module
+    backend = "Google Gemini" if llm_module.USE_GEMINI else "LM Studio (local)"
+    model   = llm_module.GEMINI_MODEL if llm_module.USE_GEMINI else llm_module.LOCAL_MODEL
+
     print("=" * 60)
-    print("  Y-AI v3.2 — Batch SSE + Engaging Loading UX")
-    print(f"  PORT   : {port}")
-    print("  MODEL  : gemma-4-e2b (local LM Studio)")
-    print("  STREAM : SSE batch (1 text event) ✓")
+    print("  Y-AI v3.3 — Results Delayed + Mini Sidebar")
+    print(f"  PORT    : {port}")
+    print(f"  BACKEND : {backend}")
+    print(f"  MODEL   : {model}")
+    print(f"  URL     : http://127.0.0.1:{port}")
     print("=" * 60)
 
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
