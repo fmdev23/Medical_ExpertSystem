@@ -14,7 +14,22 @@ import logging
 import os
 from typing import Dict, Generator, List, Optional
 
-from langchain_openai import ChatOpenAI
+# ─── AUTO-DETECT BACKEND ──────────────────────────────────
+
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "").strip()
+USE_GEMINI     = bool(GOOGLE_API_KEY)
+
+if USE_GEMINI:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+    logging.getLogger(__name__).info(f"[LLM] Backend: Google Gemini ({GEMINI_MODEL})")
+else:
+    from langchain_openai import ChatOpenAI
+    LOCAL_API_BASE = os.environ.get("LM_STUDIO_URL", "http://127.0.0.1:1234/v1")
+    LOCAL_API_KEY  = "lm-studio"
+    LOCAL_MODEL    = os.environ.get("LM_STUDIO_MODEL", "gemma-4-e2b")
+    logging.getLogger(__name__).info(f"[LLM] Backend: LM Studio local ({LOCAL_API_BASE})")
+
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 logger = logging.getLogger(__name__)
@@ -100,14 +115,22 @@ QUY TẮC BẮT BUỘC (vi phạm = sai về y tế):
 # ─── LANGCHAIN CORE ───────────────────────────────────────
 
 def _get_llm(temperature: float = 0.1):
-    """Khởi tạo instance LangChain trỏ về Local LM Studio."""
-    return ChatOpenAI(
-        model=MODEL_NAME,
-        temperature=temperature,
-        base_url=LOCAL_API_BASE,
-        api_key=LOCAL_API_KEY,
-        max_tokens=None,
-    )
+    """Khởi tạo LLM phù hợp với môi trường hiện tại."""
+    if USE_GEMINI:
+        return ChatGoogleGenerativeAI(
+            model           = GEMINI_MODEL,
+            temperature     = temperature,
+            google_api_key  = GOOGLE_API_KEY,
+            max_output_tokens = 1024,
+        )
+    else:
+        return ChatOpenAI(
+            model      = LOCAL_MODEL,
+            temperature = temperature,
+            base_url   = LOCAL_API_BASE,
+            api_key    = LOCAL_API_KEY,
+            max_tokens = None,
+        )
 
 
 def _parse_json(raw: Optional[str]) -> Optional[Dict]:
