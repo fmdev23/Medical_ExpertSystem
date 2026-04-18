@@ -21,7 +21,7 @@ USE_GEMINI     = bool(GOOGLE_API_KEY)
 
 if USE_GEMINI:
     from langchain_google_genai import ChatGoogleGenerativeAI
-    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     logging.getLogger(__name__).info(f"[LLM] Backend: Google Gemini ({GEMINI_MODEL})")
 else:
     from langchain_openai import ChatOpenAI
