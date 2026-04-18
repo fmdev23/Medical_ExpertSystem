@@ -121,7 +121,7 @@ def _get_llm(temperature: float = 0.1):
             model           = GEMINI_MODEL,
             temperature     = temperature,
             google_api_key  = GOOGLE_API_KEY,
-            max_output_tokens = 1024,
+            max_output_tokens = 4026,
         )
     else:
         return ChatOpenAI(
