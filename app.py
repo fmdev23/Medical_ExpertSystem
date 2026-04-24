@@ -1,27 +1,36 @@
 """
 =============================================================
-  FLASK APP v3.3 — Medical Chatbot (Results Delayed to Done)
+  FLASK APP v3.4 — Medical Chatbot
 =============================================================
-  Thay đổi so với v3.2:
+  Fixes từ v3.3:
 
-  [1] SIDEBAR RESULTS DELAYED
-      → Event "meta" KHÔNG còn gửi results
-      → Event "done" gửi results SAU khi AI text đã reveal
-      → Người dùng thấy kết quả sidebar CÙNG LÚC đọc nội dung,
-        không phải trước khi AI gen xong
+  [1] COOKIE-BASED SESSION  (fix Vercel cold-start)
+      → Bỏ _conversations in-memory dict
+      → Lưu state chẩn đoán vào Flask cookie session
+        (client-side, tồn tại qua mọi serverless instance)
+      → chat_history quản lý phía client, gửi kèm mỗi request
+      → save_session() gọi TRƯỚC khi SSE stream bắt đầu
+        (cookie header phải set trước khi body stream)
 
-  [2] GIỮ NGUYÊN TỪ v3.2
-      → Batch SSE response
-      → Keep-alive heartbeat
-      → In-memory session store
+  [2] FIX FOLLOWUP QUESTIONS  (fix "AI ngáo hỏi thêm")
+      → pick_followup_question() chỉ hỏi khi:
+        (a) Hai bệnh đầu còn uncertain (gap < threshold), HOẶC
+        (b) top confidence < _FOLLOWUP_CONF_THRESHOLD (0.78)
+      → Sau 2 turn uncertain liên tiếp → dừng hỏi, chốt kết quả
+
+  [3] STABLE SECRET_KEY
+      → Fallback về chuỗi cố định thay vì secrets.token_hex()
+      → Tránh vô hiệu hoá session sau mỗi cold start
+
+  [4] GIỮ NGUYÊN từ v3.3
+      → Batch SSE / keep-alive heartbeat
+      → "done" event gửi results SAU khi text AI reveal
 =============================================================
 """
 
 from flask import Flask, render_template, request, jsonify, session, Response, stream_with_context
 import os
 import json
-import secrets
-import threading
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -34,11 +43,13 @@ from engine import run_inference, build_response_text
 from llm    import call_llm_diagnosis, call_llm_chat_stream
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 
-# ─── IN-MEMORY CONVERSATION STORE ─────────────────────────
-_conversations: Dict[str, Dict] = {}
-
+# Dùng env var SECRET_KEY để deploy; fallback cố định thay vì random
+# → session không bị invalidate sau mỗi Vercel cold start
+app.secret_key = os.environ.get(
+    "SECRET_KEY",
+    "yai-medical-chatbot-default-key-please-override-in-production"
+)
 
 # ─── MESSAGES ─────────────────────────────────────────────
 
@@ -53,7 +64,7 @@ WELCOME_MESSAGE = (
 )
 
 
-# ─── FOLLOW-UP QUESTION BANK ──────────────────────────────
+# ─── FOLLOW-UP QUESTION BANKS ─────────────────────────────
 
 DIFFERENTIAL_QUESTIONS: Dict = {
     ("influenza",       "common_cold"):       ("muscle_pain",         "Bạn có bị đau cơ, nhức mỏi toàn thân không?"),
@@ -84,18 +95,15 @@ DISEASE_FOLLOWUP: Dict[str, Tuple[str, str]] = {
 }
 
 
-# ─── SESSION MANAGEMENT (IN-MEMORY) ───────────────────────
-
-def _get_sid() -> str:
-    if "_sid" not in session:
-        session["_sid"] = secrets.token_hex(16)
-    return session["_sid"]
-
+# ─── SESSION MANAGEMENT (FLASK COOKIE) ────────────────────
+# Thay thế _conversations in-memory dict.
+# Flask cookie session là client-side → hoạt động qua mọi
+# Vercel serverless instance mà không mất state.
 
 def get_session_data() -> Dict:
-    sid = _get_sid()
-    if sid not in _conversations:
-        _conversations[sid] = {
+    """Lấy / khởi tạo conversation state từ Flask cookie session."""
+    if "conv" not in session:
+        session["conv"] = {
             "confirmed_symptoms": [],
             "denied_symptoms":    [],
             "intensities":        {},
@@ -104,15 +112,20 @@ def get_session_data() -> Dict:
             "last_diseases":      [],
             "asked_questions":    [],
             "uncertain_turns":    0,
-            "chat_history":       [],
         }
-    return _conversations[sid]
+    return session["conv"]
 
 
 def save_session(conv: Dict) -> None:
-    sid = session.get("_sid")
-    if sid:
-        _conversations[sid] = conv
+    """
+    Lưu state chẩn đoán vào cookie session.
+
+    QUAN TRỌNG: Phải gọi TRƯỚC khi tạo Response() SSE stream.
+    Flask set cookie trong response header; header phải được gửi
+    trước khi body SSE bắt đầu stream. chat_history bị loại trừ
+    (quá lớn cho cookie, quản lý phía client thay thế).
+    """
+    session["conv"] = {k: v for k, v in conv.items() if k != "chat_history"}
     session.modified = True
 
 
@@ -136,14 +149,6 @@ def _merge_nlp_into_session(conv: Dict, nlp_result: Dict) -> None:
             conv["intensities"].pop(s, None)
 
 
-def _update_chat_history(conv: Dict, user_msg: str, ai_reply: str) -> None:
-    history = conv.setdefault("chat_history", [])
-    history.append({"role": "user",  "content": user_msg})
-    history.append({"role": "model", "content": ai_reply})
-    if len(history) > 20:
-        conv["chat_history"] = history[-20:]
-
-
 # ─── INTENT DETECTION ─────────────────────────────────────
 
 def detect_intent(text: str) -> str:
@@ -157,16 +162,32 @@ def detect_intent(text: str) -> str:
     return "symptom"
 
 
-# ─── FOLLOW-UP QUESTION SELECTOR ──────────────────────────
+# ─── FOLLOW-UP QUESTION SELECTOR (v3.4 — chỉ hỏi khi cần) ─
+#
+# FIX: v3.3 luôn hỏi disease-specific followup bất kể confidence.
+# → AI có đủ triệu chứng vẫn hỏi thêm (hiện tượng "ngáo").
+#
+# Quy tắc mới:
+#  • uncertain + hai bệnh gần nhau  → hỏi câu phân biệt
+#  • confidence < threshold         → hỏi câu xác nhận bệnh đầu
+#  • confident (≥ threshold)        → KHÔNG hỏi, trả lời ngay
+#  • stuck uncertain ≥ 2 turn       → KHÔNG hỏi, chốt kết quả
+
+_FOLLOWUP_CONF_THRESHOLD = 0.78   # ≥ 78% → đủ tin, không hỏi thêm
 
 def pick_followup_question(conv: Dict, inference: Dict) -> Optional[str]:
     results = inference.get("results", [])
     asked   = set(conv.get("asked_questions", []))
     known   = set(conv["confirmed_symptoms"] + conv["denied_symptoms"])
 
+    # Đã hỏi quá nhiều lần mà vẫn uncertain → dừng, chốt kết quả
+    if conv.get("uncertain_turns", 0) >= 2:
+        return None
+
     def can_ask(sym: str) -> bool:
         return sym not in known and sym not in asked
 
+    # ── 1. Câu phân biệt khi hai bệnh còn uncertain ───────
     if inference.get("uncertain") and len(results) >= 2:
         d1, d2 = results[0]["disease"], results[1]["disease"]
         for pair in [(d1, d2), (d2, d1)]:
@@ -176,7 +197,8 @@ def pick_followup_question(conv: Dict, inference: Dict) -> Optional[str]:
                     conv["asked_questions"].append(sym)
                     return question
 
-    if results:
+    # ── 2. Câu xác nhận bệnh đầu CHỈ KHI confidence chưa đủ ─
+    if results and results[0]["confidence"] < _FOLLOWUP_CONF_THRESHOLD:
         top = results[0]["disease"]
         if top in DISEASE_FOLLOWUP:
             sym, question = DISEASE_FOLLOWUP[top]
@@ -184,6 +206,7 @@ def pick_followup_question(conv: Dict, inference: Dict) -> Optional[str]:
                 conv["asked_questions"].append(sym)
                 return question
 
+    # Confidence đủ cao → không hỏi thêm
     return None
 
 
@@ -192,10 +215,8 @@ def pick_followup_question(conv: Dict, inference: Dict) -> Optional[str]:
 def _sse(data: Dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
-
 def _sse_heartbeat() -> str:
     return ": ping\n\n"
-
 
 def _sse_progress(stage: str, pct: int) -> str:
     return _sse({"type": "progress", "stage": stage, "pct": pct})
@@ -214,6 +235,10 @@ def chat():
         data    = request.get_json(silent=True) or {}
         message = data.get("message", "").strip()
 
+        # Chat history từ client (không lưu server-side, tránh vượt cookie limit)
+        # Client gửi tối đa 4 messages gần nhất (2 turns) để làm LLM context
+        client_history: List[Dict] = data.get("history", [])[-4:]
+
         if not message:
             return jsonify({
                 "reply":    "Bạn chưa nhập gì cả. Hãy mô tả triệu chứng của bạn.",
@@ -221,7 +246,7 @@ def chat():
             })
 
         conv = get_session_data()
-        conv["turn_count"] += 1
+        conv["turn_count"] = conv.get("turn_count", 0) + 1
         intent = detect_intent(message)
 
         if intent == "greeting" and conv["turn_count"] == 1:
@@ -233,9 +258,7 @@ def chat():
             })
 
         if intent == "reset":
-            sid = session.get("_sid")
-            if sid and sid in _conversations:
-                del _conversations[sid]
+            session.pop("conv", None)
             return jsonify({
                 "reply":    "Đã làm mới cuộc trò chuyện.\n\n" + WELCOME_MESSAGE,
                 "symptoms": [], "results": [],
@@ -321,20 +344,21 @@ def chat():
         ]
 
         conv["last_diseases"] = [r["disease"] for r in inference["results"]]
+
+        # ── Lưu session TRƯỚC khi SSE stream bắt đầu ─────────
+        # Flask set cookie trong response header. Header phải được
+        # gửi trước body → save_session() phải gọi trước Response().
         save_session(conv)
 
         _inference_results = list(inference["results"])
         _uncertain         = inference["uncertain"]
-        _chat_history      = list(conv.get("chat_history", []))
-        _sid               = session.get("_sid")
+        _chat_history      = list(client_history)   # Context từ client
 
         # STEP 4 — SSE STREAM
         def generate():
             import time
 
-            # ── Event 1: meta — symptoms ONLY, NO results ─────
-            # Results sẽ được gửi trong event "done" sau khi
-            # AI gen xong text, tránh lộ kết quả quá sớm
+            # Event 1: meta — chỉ gửi symptoms, KHÔNG gửi results
             yield _sse({
                 "type":         "meta",
                 "symptoms":     sym_display,
@@ -343,7 +367,6 @@ def chat():
                 "llm_fallback": llm_fallback,
                 "intent":       "symptom",
                 "turn":         conv["turn_count"],
-                # "results" intentionally omitted here
             })
 
             yield _sse_progress("Đang tra cứu cơ sở dữ liệu y khoa…", 20)
@@ -388,7 +411,7 @@ def chat():
                             last_progress = now
 
                 except Exception as stream_err:
-                    app.logger.warning(f"Stream error mid-way: {stream_err}")
+                    app.logger.warning(f"Stream error: {stream_err}")
 
             if not stream_ok:
                 fallback_text = build_response_text(
@@ -406,19 +429,11 @@ def chat():
 
             yield _sse_progress("Xong! Đang hiển thị kết quả…", 100)
 
-            # ── Text event: full AI response ───────────────────
+            # Event text: full AI response
             yield _sse({"type": "text", "content": full_reply})
 
-            # Lưu history
-            if _sid and _sid in _conversations:
-                _update_chat_history(_conversations[_sid], message, full_reply)
-
-            # ── Done event: results gửi ở đây để sidebar cập
-            #    nhật SAU khi người dùng đã thấy text AI ─────────
-            yield _sse({
-                "type":    "done",
-                "results": result_summary,
-            })
+            # Event done: results gửi SAU text (sidebar cập nhật sau khi user đọc)
+            yield _sse({"type": "done", "results": result_summary})
 
         return Response(
             stream_with_context(generate()),
@@ -442,9 +457,7 @@ def chat():
 
 @app.route("/api/reset", methods=["POST"])
 def reset():
-    sid = session.get("_sid")
-    if sid and sid in _conversations:
-        del _conversations[sid]
+    session.pop("conv", None)
     return jsonify({"status": "ok"})
 
 
@@ -454,13 +467,12 @@ def status():
     backend = "Google Gemini" if llm_module.USE_GEMINI else "LM Studio (local)"
     model   = llm_module.GEMINI_MODEL if llm_module.USE_GEMINI else llm_module.LOCAL_MODEL
     return jsonify({
-        "status":          "running",
-        "version":         "3.3",
-        "llm_backend":     backend,
-        "model":           model,
-        "batch_response":  True,
-        "active_sessions": len(_conversations),
-        "time":            datetime.now().isoformat(),
+        "status":       "running",
+        "version":      "3.4",
+        "llm_backend":  backend,
+        "model":        model,
+        "session_type": "cookie",
+        "time":         datetime.now().isoformat(),
     })
 
 
@@ -468,11 +480,7 @@ def status():
 def debug_session():
     if not app.debug:
         return jsonify({"error": "Debug mode only"}), 403
-    sid  = session.get("_sid")
-    conv = _conversations.get(sid, {})
-    debug_data = {k: v for k, v in conv.items() if k != "chat_history"}
-    debug_data["chat_history_length"] = len(conv.get("chat_history", []))
-    return jsonify(debug_data)
+    return jsonify(session.get("conv", {}))
 
 
 # ─── MAIN ─────────────────────────────────────────────────
@@ -485,7 +493,7 @@ if __name__ == "__main__":
     model   = llm_module.GEMINI_MODEL if llm_module.USE_GEMINI else llm_module.LOCAL_MODEL
 
     print("=" * 60)
-    print("  Y-AI v3.3 — Results Delayed + Mini Sidebar")
+    print("  Y-AI v3.4 — Cookie Session + Follow-up Fix")
     print(f"  PORT    : {port}")
     print(f"  BACKEND : {backend}")
     print(f"  MODEL   : {model}")
