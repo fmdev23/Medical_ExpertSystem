@@ -884,6 +884,7 @@ sendMessage = async function () {
   let botContentDiv = null;
   let buffer = '';
   let finalReply = '';
+  let shouldStopReading = false;
 
   const handleSseEvent = (data) => {
     if (requestToken !== activeRequestToken) return;
@@ -942,10 +943,17 @@ sendMessage = async function () {
         for (const part of parts) {
           processSsePart(part, handleSseEvent);
         }
+
+        if (parts.some(part => part.includes('"type":"done"') || part.includes('"type": "done"'))) {
+          shouldStopReading = true;
+          await reader.cancel();
+          buffer = '';
+          break;
+        }
       }
 
       buffer += decoder.decode();
-      if (buffer.trim()) {
+      if (!shouldStopReading && buffer.trim()) {
         processSsePart(buffer, handleSseEvent);
       }
     } else {
