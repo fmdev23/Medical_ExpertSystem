@@ -531,6 +531,13 @@ function updateSidebar(symptoms, results) {
 
 // ── Reset ─────────────────────────────────────────────────
 async function resetChat() {
+  if (activeChatController) {
+    try { activeChatController.abort(); } catch (_) {}
+    activeChatController = null;
+  }
+  const sendBtn = document.getElementById('sendBtn');
+  if (sendBtn) sendBtn.disabled = false;
+
   try { await fetch('/api/reset', { method: 'POST' }); } catch (_) {}
   document.getElementById('messages').innerHTML = '';
   document.getElementById('symptom-panel').style.display = 'none';
@@ -665,6 +672,11 @@ function rotateTip() {
 // ════════════════════════════════════════════════════════
 //  CORE — SSE HANDLER
 // ════════════════════════════════════════════════════════
+let activeChatController = null;
+const FORCE_JSON_CHAT =
+  window.location.hostname.endsWith('vercel.app') ||
+  window.location.search.includes('stream=0');
+
 async function sendMessage() {
   const input   = document.getElementById('userInput');
   const sendBtn = document.getElementById('sendBtn');
@@ -681,12 +693,25 @@ async function sendMessage() {
 
   let botContentDiv = null;
   let buffer = '';
+  let gotTextEvent = false;
+  let gotDoneEvent = false;
+  let watchdog = null;
 
   try {
-    const res = await fetch('/api/chat', {
+    if (activeChatController) {
+      try { activeChatController.abort(); } catch (_) {}
+    }
+    activeChatController = new AbortController();
+    watchdog = setTimeout(() => {
+      try { activeChatController?.abort(); } catch (_) {}
+    }, 45000);
+
+    const chatEndpoint = FORCE_JSON_CHAT ? '/api/chat?stream=0' : '/api/chat';
+    const res = await fetch(chatEndpoint, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ message: text }),
+      signal:  activeChatController.signal,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -702,15 +727,21 @@ async function sendMessage() {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
+        const parts = buffer.split(/\r?\n\r?\n/);
         buffer = parts.pop();
 
         for (const part of parts) {
-          if (part.startsWith(':')) continue;   // SSE heartbeat
-          if (!part.startsWith('data: ')) continue;
+          if (!part || part.startsWith(':')) continue; // SSE heartbeat
+
+          const dataLines = part
+            .split(/\r?\n/)
+            .filter(line => line.startsWith('data:'))
+            .map(line => line.replace(/^data:\s?/, ''));
+
+          if (!dataLines.length) continue;
 
           let data;
-          try { data = JSON.parse(part.slice(6)); } catch { continue; }
+          try { data = JSON.parse(dataLines.join('\n')); } catch { continue; }
 
           // ── meta: symptoms ONLY ────────────────────────
           // Results are intentionally NOT in this event
@@ -730,6 +761,7 @@ async function sendMessage() {
           // ── text: full AI response → reveal smoothly ───
           else if (data.type === 'text') {
             hideLoadingCard();
+            gotTextEvent = true;
             if (!botContentDiv) {
               botContentDiv = appendMessage('bot', '');
             }
@@ -742,6 +774,8 @@ async function sendMessage() {
           else if (data.type === 'done') {
             hideLoadingCard();
             setStatus('Đang hoạt động', false);
+            gotDoneEvent = true;
+            sendBtn.disabled = false;
 
             if (data.results && data.results.length) {
               // 600ms delay: sidebar updates as user reads AI text
@@ -749,8 +783,17 @@ async function sendMessage() {
                 updateSidebarResults(data.results);
               }, 600);
             }
+
+            reader.cancel().catch(() => {});
+            break;
           }
         }
+
+        if (gotDoneEvent) break;
+      }
+
+      if (!gotTextEvent && gotDoneEvent && !botContentDiv) {
+        appendMessage('bot', '⚠️ Tôi đã phân tích xong nhưng phản hồi văn bản bị gián đoạn. Bạn vui lòng gửi lại để tôi trả lời đầy đủ.');
       }
 
     // ── JSON fallback (greeting / help / reset / errors) ─
@@ -765,18 +808,25 @@ async function sendMessage() {
   } catch (err) {
     console.error('Request error:', err);
     hideLoadingCard();
+    const isAborted = err?.name === 'AbortError';
     if (botContentDiv) {
       botContentDiv.closest('.bubble-reveal')?.classList.add('revealed');
       botContentDiv.innerHTML =
-        '<em style="color:var(--text-muted);font-size:12px">⚠️ Kết nối bị gián đoạn. Vui lòng thử lại.</em>';
+        isAborted
+          ? '<em style="color:var(--text-muted);font-size:12px">⚠️ Yêu cầu bị timeout do kết nối chậm. Bạn vui lòng gửi lại.</em>'
+          : '<em style="color:var(--text-muted);font-size:12px">⚠️ Kết nối bị gián đoạn. Vui lòng thử lại.</em>';
     } else {
-      appendMessage('bot', '⚠️ Lỗi kết nối. Vui lòng thử lại.');
+      appendMessage('bot', isAborted
+        ? '⚠️ Yêu cầu bị timeout do kết nối chậm. Vui lòng gửi lại.'
+        : '⚠️ Lỗi kết nối. Vui lòng thử lại.');
     }
+  } finally {
+    clearTimeout(watchdog);
+    activeChatController = null;
+    setStatus('Đang hoạt động', false);
+    sendBtn.disabled = false;
+    if (!window.matchMedia('(pointer: coarse)').matches) input.focus();
   }
-
-  setStatus('Đang hoạt động', false);
-  sendBtn.disabled = false;
-  if (!window.matchMedia('(pointer: coarse)').matches) input.focus();
 }
 </script>
 

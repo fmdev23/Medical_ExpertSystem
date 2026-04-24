@@ -31,7 +31,7 @@ from nlp import (
     normalize_text,
 )
 from engine import run_inference, build_response_text
-from llm    import call_llm_diagnosis, call_llm_chat_stream
+from llm    import call_llm_diagnosis, call_llm_chat_stream, call_llm_chat
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
@@ -163,6 +163,16 @@ def pick_followup_question(conv: Dict, inference: Dict) -> Optional[str]:
     results = inference.get("results", [])
     asked   = set(conv.get("asked_questions", []))
     known   = set(conv["confirmed_symptoms"] + conv["denied_symptoms"])
+    top_confidence = results[0]["confidence"] if results else 0.0
+    confirmed_count = len(conv.get("confirmed_symptoms", []))
+
+    need_followup = (
+        inference.get("uncertain", False)
+        or top_confidence < 0.72
+        or confirmed_count < 3
+    )
+    if not need_followup:
+        return None
 
     def can_ask(sym: str) -> bool:
         return sym not in known and sym not in asked
@@ -328,7 +338,49 @@ def chat():
         _chat_history      = list(conv.get("chat_history", []))
         _sid               = session.get("_sid")
 
-        # STEP 4 — SSE STREAM
+        # STEP 4 — RESPONSE MODE SELECTOR
+        # Vercel + Gemini có thể gặp tình trạng stream treo (request chỉ đóng sau timeout nền tảng).
+        # Cho phép tắt SSE để trả JSON ổn định hơn.
+        force_no_stream = (
+            request.args.get("stream") == "0"
+            or os.environ.get("DISABLE_SSE", "0") == "1"
+        )
+
+        if force_no_stream:
+            reply_text = call_llm_chat(
+                user_message      = message,
+                symptom_display   = sym_display,
+                denied_display    = denied_display,
+                inference_results = _inference_results,
+                uncertain         = _uncertain,
+                followup_question = followup,
+                chat_history      = _chat_history,
+                llm_fallback      = llm_fallback,
+            )
+
+            if not reply_text:
+                reply_text = build_response_text(
+                    inference_result = inference,
+                    symptoms         = confirmed,
+                    symptom_display  = sym_display,
+                    denied_display   = denied_display if denied_display else None,
+                    llm_fallback     = llm_fallback,
+                )
+                if followup:
+                    reply_text += f"\n\n---\n💬 **Câu hỏi thêm:** {followup}"
+
+            if _sid and _sid in _conversations:
+                _update_chat_history(_conversations[_sid], message, reply_text)
+
+            return jsonify({
+                "reply":    reply_text,
+                "symptoms": sym_display,
+                "results":  result_summary,
+                "intent":   "symptom",
+                "turn":     conv["turn_count"],
+            })
+
+        # STEP 5 — SSE STREAM
         def generate():
             import time
 
