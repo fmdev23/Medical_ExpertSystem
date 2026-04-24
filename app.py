@@ -32,6 +32,7 @@ from flask import Flask, render_template, request, jsonify, session, Response, s
 import os
 import json
 from datetime import datetime
+import re
 from typing import Dict, List, Optional, Tuple
 
 from nlp import (
@@ -151,14 +152,32 @@ def _merge_nlp_into_session(conv: Dict, nlp_result: Dict) -> None:
 
 # ─── INTENT DETECTION ─────────────────────────────────────
 
-def detect_intent(text: str) -> str:
+def _normalize_command_text(text: str) -> str:
     norm = normalize_text(text)
-    if any(kw in norm for kw in ["reset", "làm lại", "bắt đầu lại", "xoá hết", "clear", "thử lại", "bắt đầu từ đầu"]):
+    return re.sub(r"\s+", " ", norm).strip(" .,;:!?")
+
+
+def _contains_standalone_phrase(text: str, phrase: str) -> bool:
+    return re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text) is not None
+
+
+def detect_intent(text: str) -> str:
+    norm = _normalize_command_text(text)
+    token_count = len(norm.split()) if norm else 0
+
+    reset_commands = ["reset", "làm lại", "bắt đầu lại", "xoá hết", "clear", "thử lại", "bắt đầu từ đầu"]
+    greeting_commands = ["xin chào", "chào", "hello", "hi", "hey", "start", "bắt đầu"]
+    help_commands = ["giúp tôi", "hướng dẫn", "help", "hỗ trợ"]
+
+    if norm in reset_commands:
         return "reset"
-    if any(kw in norm for kw in ["xin chào", "chào", "hello", "hi", "hey", "start", "bắt đầu"]):
+
+    if token_count <= 4 and any(_contains_standalone_phrase(norm, kw) for kw in greeting_commands):
         return "greeting"
-    if any(kw in norm for kw in ["giúp tôi", "hướng dẫn", "help", "hỗ trợ"]):
+
+    if token_count <= 5 and any(_contains_standalone_phrase(norm, kw) for kw in help_commands):
         return "help"
+
     return "symptom"
 
 
@@ -252,14 +271,6 @@ def chat():
         conv = get_session_data()
         conv["turn_count"] = conv.get("turn_count", 0) + 1
         intent = detect_intent(message)
-
-        if intent == "greeting" and conv["turn_count"] == 1:
-            save_session(conv)
-            return jsonify({
-                "reply":    WELCOME_MESSAGE,
-                "symptoms": [], "results": [],
-                "intent":   intent, "turn": conv["turn_count"],
-            })
 
         if intent == "reset":
             session.pop("conv", None)
