@@ -188,7 +188,11 @@ def pick_followup_question(conv: Dict, inference: Dict) -> Optional[str]:
         return sym not in known and sym not in asked
 
     # ── 1. Câu phân biệt khi hai bệnh còn uncertain ───────
-    if inference.get("uncertain") and len(results) >= 2:
+    if (
+        inference.get("uncertain")
+        and len(results) >= 2
+        and results[0]["confidence"] < _FOLLOWUP_CONF_THRESHOLD
+    ):
         d1, d2 = results[0]["disease"], results[1]["disease"]
         for pair in [(d1, d2), (d2, d1)]:
             if pair in DIFFERENTIAL_QUESTIONS:

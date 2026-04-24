@@ -96,16 +96,19 @@ def _check_rule(
         return None
 
     # ── Step 5: match_score ───────────────────────────────
-    total_expected = len(if_all) + len(if_any)
-    total_matched  = len(matched_all) + len(matched_any)
-
-    match_ratio   = (total_matched / total_expected) if total_expected > 0 else 0.5
     any_coverage  = (len(matched_any) / len(if_any)) if if_any else 0.0
-    match_score   = 0.60 * match_ratio + 0.40 * any_coverage
+    if len(if_all) <= 1:
+        all_weight = 0.55
+    elif len(if_all) == 2:
+        all_weight = 0.70
+    else:
+        all_weight = 0.78
+    match_score   = all_weight * all_coverage + (1 - all_weight) * any_coverage
 
     # ── Step 6: Symptom Count Bonus ───────────────────────
     extra_any   = max(0, len(matched_any) - 1)
     count_bonus = min(extra_any * SYMPTOM_COUNT_BONUS, MAX_BONUS)
+    mandatory_bonus = 0.06 if len(if_all) >= 2 and not missing_all else 0.0
 
     # ── Step 7: Intensity Bonus ───────────────────────────
     intensity_bonus = 0.0
@@ -129,7 +132,7 @@ def _check_rule(
     # ── Step 10: Final Confidence ─────────────────────────
     base  = rule["confidence"]
     final = base * (0.45 + 0.55 * match_score)
-    final += count_bonus + intensity_bonus + mention_bonus
+    final += count_bonus + mandatory_bonus + intensity_bonus + mention_bonus
     final -= soft_penalty   # ← new penalty for missing if_all
     final  = round(min(max(final, 0.0), 0.97), 3)
 
@@ -152,6 +155,7 @@ def _check_rule(
         "supporting":    supporting,
         "match_score":   round(match_score, 3),
         "count_bonus":   round(count_bonus, 3),
+        "mandatory_bonus": round(mandatory_bonus, 3),
         # v2.1 extras for debugging
         "missing_all":   missing_all,
         "soft_penalty":  round(soft_penalty, 3),
