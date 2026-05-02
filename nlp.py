@@ -217,39 +217,8 @@ def normalize_symptom_list(symptoms: list) -> list:
 
 # ─── NLP v2.1 — HYBRID (giữ nguyên) ──────────────────────
 
-def extract_with_llm(text: str) -> dict:
-    try:
-        from llm import call_llm_extract
-        result = call_llm_extract(text)
-        if result is None:
-            raise RuntimeError("LLM returned None")
-        return result
-    except Exception as exc:
-        raise RuntimeError(f"LLM extraction failed: {exc}") from exc
-
-
 def extract_symptoms_hybrid(text: str) -> dict:
-    llm_result = None
-    llm_ok = False
-
-    try:
-        llm_result = extract_with_llm(text)
-        llm_ok = bool(llm_result and llm_result.get("confirmed"))
-    except RuntimeError as exc:
-        logger.info("LLM extraction unavailable, using rule-based NLP. Reason: %s", exc)
-
-    if llm_ok:
-        return llm_result
-
-    rule_result = extract_symptoms_with_context(text)
-
-    if llm_result:
-        for s in llm_result.get("denied", []):
-            if s not in rule_result["denied"]:
-                rule_result["denied"].append(s)
-        rule_result["intensities"].update(llm_result.get("intensities", {}))
-
-    return rule_result
+    return extract_symptoms_with_context(text)
 
 
 # =============================================================
