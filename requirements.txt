@@ -1,5 +1,2 @@
 flask>=2.3.0
 gunicorn
-langchain
-langchain-google-genai
-langchain-openai
