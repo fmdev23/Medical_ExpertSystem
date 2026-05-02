@@ -1,41 +1,225 @@
 """
+file nlp.py
 =============================================================
-  NLP MODULE v2.1 — Medical Chatbot  (HYBRID UPGRADE)
+  NLP MODULE v3.0 — Medical Chatbot  (FULL VIETNAMESE COVERAGE)
 =============================================================
-  Changes from v2.0:
-
-  [+] extract_with_llm(text)
-      → Calls llm.call_llm_extract() for LLM-based extraction
-      → Returns same schema as extract_symptoms_with_context()
-
-  [+] extract_symptoms_hybrid(text)
-      → Tries LLM first, falls back to rule-based if LLM fails
-      → Drop-in replacement for extract_symptoms_with_context()
-      → app.py calls this function; nothing else changes
-
-  All v2.0 logic kept intact and unchanged below the new section.
+  Changes from v2.1:
+  [+] Mở rộng SYMPTOM_KEYWORDS_RAW bao phủ TẤT CẢ triệu chứng
+      từ Kaggle dataset (rules_generated.py / rules.py)
+  [+] Bổ sung SYMPTOM_ALIASES để chuẩn hóa tên triệu chứng
+      (Kaggle symptom name → NLP code)
+  [+] normalize_symptoms() để engine dùng khi match rule
+  Toàn bộ logic v2.1 giữ nguyên bên dưới.
 =============================================================
 """
-
-# ── NEW: LLM-augmented extraction ─────────────────────────
-# Place this block BEFORE the existing v2.0 code.
-# The rest of this file is the original nlp.py v2.0 verbatim.
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-def extract_with_llm(text: str) -> dict:
-    """
-    Extract symptoms using the LLM (llm.call_llm_extract).
+# ─── SYMPTOM ALIAS MAP ─────────────────────────────────────
+# Maps Kaggle dataset symptom names → NLP normalized codes.
+# Dùng trong engine.py để chuẩn hóa triệu chứng trước khi match.
+SYMPTOM_ALIASES: dict = {
+    # Breathing
+    "breathlessness":               "shortness_of_breath",
+    "congestion":                   "runny_nose",
+    "sinus_pressure":               "headache",
+    "throat_irritation":            "sore_throat",
+    "patches_in_throat":            "sore_throat",
 
-    Returns the standard NLP result dict:
-        {"confirmed": [...], "denied": [...], "intensities": {...}}
-    or raises RuntimeError if the LLM call fails, so the caller
-    can catch it and fall back to rule-based extraction.
-    """
+    # GI / Stomach
+    "diarrhoea":                    "diarrhea",
+    "stomach_pain":                 "abdominal_pain",
+    "belly_pain":                   "abdominal_pain",
+    "swelling_of_stomach":          "bloating",
+    "distention_of_abdomen":        "bloating",
+    "passage_of_gases":             "bloating",
+    "indigestion":                  "bloating",
+    "internal_itching":             "itching",
+    "pain_during_bowel_movements":  "constipation",
+    "pain_in_anal_region":          "abdominal_pain",
+    "irritation_in_anus":           "abdominal_pain",
+
+    # Skin / Eyes
+    "yellowish_skin":               "jaundice",
+    "yellowing_of_eyes":            "jaundice",
+    "yellow_urine":                 "dark_urine",
+    "foul_smell_of urine":          "dark_urine",
+    "red_spots_over_body":          "rash",
+    "skin_rash":                    "rash",
+    "nodal_skin_eruptions":         "rash",
+    "dischromic _patches":          "rash",
+    "blister":                      "rash",
+    "red_sore_around_nose":         "rash",
+    "yellow_crust_ooze":            "rash",
+    "redness_of_eyes":              "eye_redness",
+    "watering_from_eyes":           "eye_redness",
+
+    # Urinary
+    "burning_micturition":          "burning_urination",
+    "spotting_ urination":          "burning_urination",
+    "bladder_discomfort":           "burning_urination",
+    "continuous_feel_of_urine":     "frequent_urination",
+    "polyuria":                     "frequent_urination",
+
+    # Heart / Circulation
+    "fast_heart_rate":              "palpitations",
+
+    # Lymph / Glands
+    "swelled_lymph_nodes":          "swollen_lymph",
+
+    # General / Fever
+    "lethargy":                     "fatigue",
+    "malaise":                      "fatigue",
+    "mild_fever":                   "fever",
+    "high_fever":                   "high_fever",
+    "shivering":                    "chills",
+    "dehydration":                  "fatigue",
+    "sunken_eyes":                  "fatigue",
+    "fluid_overload":               "bloating",
+
+    # Musculoskeletal
+    "muscle_weakness":              "muscle_pain",
+    "muscle_wasting":               "muscle_pain",
+    "weakness_in_limbs":            "muscle_pain",
+    "weakness_of_one_body_side":    "muscle_pain",
+    "swelling_joints":              "joint_pain",
+    "movement_stiffness":           "joint_pain",
+    "painful_walking":              "joint_pain",
+    "hip_joint_pain":               "joint_pain",
+    "knee_pain":                    "joint_pain",
+    "loss_of_balance":              "dizziness",
+    "unsteadiness":                 "dizziness",
+    "altered_sensorium":            "headache",
+    "lack_of_concentration":        "headache",
+    "slurred_speech":               "headache",
+    "pain_behind_the_eyes":         "headache",
+    "visual_disturbances":          "blurred_vision",
+
+    # Sputum / Respiratory
+    "phlegm":                       "phlegm",
+    "mucoid_sputum":                "phlegm",
+    "rusty_sputum":                 "phlegm",
+    "blood_in_sputum":              "blood_in_sputum",
+
+    # Metabolic / Hormonal
+    "depression":                   "fatigue",
+    "irritability":                 "anxiety",
+    "puffy_face_and_eyes":          "swollen_legs",
+    "enlarged_thyroid":             "swollen_lymph",
+    "brittle_nails":                "skin_peeling",
+    "swollen_extremeties":          "swollen_legs",
+    "abnormal_menstruation":        "abdominal_pain",
+    "drying_and_tingling_lips":     "fatigue",
+    "toxic_look_(typhos)":          "fatigue",
+    "acute_liver_failure":          "jaundice",
+    "stomach_bleeding":             "bloody_stool",
+    "coma":                         "headache",
+
+    # Pass-through (same name in both)
+    "itching":                      "itching",
+    "vomiting":                     "vomiting",
+    "nausea":                       "nausea",
+    "fatigue":                      "fatigue",
+    "headache":                     "headache",
+    "fever":                        "fever",
+    "cough":                        "cough",
+    "chills":                       "chills",
+    "sweating":                     "sweating",
+    "dizziness":                    "dizziness",
+    "constipation":                 "constipation",
+    "diarrhea":                     "diarrhea",
+    "abdominal_pain":               "abdominal_pain",
+    "back_pain":                    "back_pain",
+    "joint_pain":                   "joint_pain",
+    "muscle_pain":                  "muscle_pain",
+    "chest_pain":                   "chest_pain",
+    "shortness_of_breath":          "shortness_of_breath",
+    "runny_nose":                   "runny_nose",
+    "sneezing":                     "sneezing",
+    "sore_throat":                  "sore_throat",
+    "rash":                         "rash",
+    "eye_redness":                  "eye_redness",
+    "swollen_lymph":                "swollen_lymph",
+    "loss_of_taste":                "loss_of_taste",
+    "loss_of_smell":                "loss_of_smell",
+    "frequent_urination":           "frequent_urination",
+    "burning_urination":            "burning_urination",
+    "palpitations":                 "palpitations",
+    "ear_pain":                     "ear_pain",
+    "dark_urine":                   "dark_urine",
+    "loss_of_appetite":             "loss_of_appetite",
+    "jaundice":                     "jaundice",
+    "bloating":                     "bloating",
+    "anxiety":                      "anxiety",
+    "weight_loss":                  "weight_loss",
+    "weight_gain":                  "weight_gain",
+    "cold_hands_and_feets":         "cold_hands_and_feets",
+    "mood_swings":                  "mood_swings",
+    "restlessness":                 "restlessness",
+    "blurred_vision":               "blurred_vision",
+    "obesity":                      "obesity",
+    "excessive_hunger":             "excessive_hunger",
+    "skin_pimples":                 "skin_pimples",
+    "bloody_stool":                 "bloody_stool",
+    "skin_peeling":                 "skin_peeling",
+    "swollen_legs":                 "swollen_legs",
+    "neck_pain":                    "neck_pain",
+    "stiff_neck":                   "stiff_neck",
+    "acidity":                      "acidity",
+    "ulcers_on_tongue":             "ulcers_on_tongue",
+    "spinning_movements":           "spinning_movements",
+    "irregular_sugar_level":        "irregular_sugar_level",
+    "phlegm":                       "phlegm",
+    "blood_in_sputum":              "blood_in_sputum",
+    "family_history":               "family_history",
+    "history_of_alcohol_consumption": "history_alcohol",
+    "extra_marital_contacts":       "history_contacts",
+    "receiving_blood_transfusion":  "history_blood",
+    "receiving_unsterile_injections": "history_blood",
+    "pus_filled_pimples":           "skin_pimples",
+    "blackheads":                   "skin_pimples",
+    "scurring":                     "skin_pimples",
+    "small_dents_in_nails":         "skin_peeling",
+    "inflammatory_nails":           "skin_peeling",
+    "silver_like_dusting":          "skin_peeling",
+    "skin_peeling":                 "skin_peeling",
+    "cramps":                       "muscle_pain",
+    "bruising":                     "swollen_legs",
+    "swollen_legs":                 "swollen_legs",
+    "swollen_blood_vessels":        "swollen_legs",
+    "prominent_veins_on_calf":      "swollen_legs",
+    "obesity":                      "obesity",
+    "irregular_sugar_level":        "irregular_sugar_level",
+    "increased_appetite":           "excessive_hunger",
+    "continuous_sneezing":          "sneezing",
+}
+
+
+def normalize_symptom(symptom: str) -> str:
+    """Chuẩn hóa tên triệu chứng từ Kaggle → NLP code."""
+    s = symptom.strip()
+    return SYMPTOM_ALIASES.get(s, s)
+
+
+def normalize_symptom_list(symptoms: list) -> list:
+    """Chuẩn hóa danh sách triệu chứng, loại bỏ trùng lặp."""
+    seen = set()
+    result = []
+    for s in symptoms:
+        ns = normalize_symptom(s)
+        if ns not in seen:
+            seen.add(ns)
+            result.append(ns)
+    return result
+
+
+# ─── NLP v2.1 — HYBRID (giữ nguyên) ──────────────────────
+
+def extract_with_llm(text: str) -> dict:
     try:
-        from llm import call_llm_extract  # lazy import — avoids hard dependency
+        from llm import call_llm_extract
         result = call_llm_extract(text)
         if result is None:
             raise RuntimeError("LLM returned None")
@@ -45,26 +229,11 @@ def extract_with_llm(text: str) -> dict:
 
 
 def extract_symptoms_hybrid(text: str) -> dict:
-    """
-    Hybrid extraction: LLM first, rule-based NLP as fallback.
-
-    Strategy:
-    1. Try call_llm_extract() via extract_with_llm()
-    2. If LLM succeeds AND returns ≥1 confirmed symptom → use it
-    3. Otherwise fall back to extract_symptoms_with_context()
-    4. If LLM returned partial results (e.g. confirmed but empty
-       denied), merge with rule-based output to fill gaps
-
-    This is the function app.py should call instead of
-    extract_symptoms_with_context() directly.
-    """
     llm_result = None
     llm_ok = False
 
     try:
         llm_result = extract_with_llm(text)
-        # Consider LLM successful only if it found at least one symptom
-        # (avoids silently swallowing empty results on ambiguous input)
         llm_ok = bool(llm_result and llm_result.get("confirmed"))
     except RuntimeError as exc:
         logger.info("LLM extraction unavailable, using rule-based NLP. Reason: %s", exc)
@@ -72,11 +241,8 @@ def extract_symptoms_hybrid(text: str) -> dict:
     if llm_ok:
         return llm_result
 
-    # Fallback: original rule-based extraction
     rule_result = extract_symptoms_with_context(text)
 
-    # If LLM returned something partial (denied only, or intensities),
-    # merge it with rule-based result rather than discarding it entirely
     if llm_result:
         for s in llm_result.get("denied", []):
             if s not in rule_result["denied"]:
@@ -87,11 +253,11 @@ def extract_symptoms_hybrid(text: str) -> dict:
 
 
 # =============================================================
-#  ORIGINAL nlp.py v2.0 — UNCHANGED BELOW THIS LINE
+#  ORIGINAL nlp.py v2.0 — MỞ RỘNG v3.0
 # =============================================================
 
 import re
-from typing import List, Dict, Tuple, Set
+from typing import List, Dict, Tuple
 from functools import lru_cache
 
 
@@ -155,13 +321,19 @@ DISEASE_INFERENCE_CHAINS: Dict[str, List[str]] = {
     "tiêu chảy":       ["diarrhea", "abdominal_pain"],
     "viêm gan":        ["jaundice", "fatigue", "dark_urine", "loss_of_appetite"],
     "dengue":          ["high_fever", "fever", "muscle_pain", "joint_pain"],
+    "thủy đậu":        ["rash", "fever", "itching", "fatigue"],
+    "sốt rét":         ["high_fever", "chills", "sweating", "headache", "muscle_pain"],
+    "viêm dạ dày":     ["abdominal_pain", "nausea", "bloating", "loss_of_appetite"],
+    "huyết áp cao":    ["headache", "dizziness", "palpitations"],
+    "hạ đường huyết":  ["sweating", "dizziness", "fatigue", "anxiety"],
 }
 
 
-# ─── SYMPTOM KEYWORD DICTIONARY ───────────────────────────
+# ─── SYMPTOM KEYWORD DICTIONARY (v3.0 — đầy đủ) ──────────
 
 SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
 
+    # ── HÔ HẤP ────────────────────────────────────────────
     "fever": [
         "sốt cao kéo dài", "sốt kéo dài", "bị sốt cao",
         "nóng người sốt", "thân nhiệt cao", "người đang nóng",
@@ -181,6 +353,15 @@ SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
         "ho nhiều lần", "ho nhiều", "ho kéo dài", "ho khan",
         "hay ho", "ho", "cough", "coughing", "dry cough", "wet cough",
     ],
+    "phlegm": [
+        "có đờm", "đờm nhiều", "khạc đờm", "khạc nhổ",
+        "đờm xanh", "đờm vàng", "đờm có máu", "đờm gỉ sét",
+        "phlegm", "sputum", "mucus in throat",
+    ],
+    "blood_in_sputum": [
+        "ho ra máu", "khạc ra máu", "đờm có máu", "máu trong đờm",
+        "blood in sputum", "hemoptysis",
+    ],
     "runny_nose": [
         "nước mũi chảy nhiều", "chảy nước mũi xanh",
         "chảy nước mũi", "mũi chảy nước", "sổ mũi nhiều",
@@ -194,7 +375,7 @@ SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
         "sore throat", "throat pain", "pharyngitis",
     ],
     "sneezing": [
-        "hắt hơi liên tục", "hắt hơi nhiều lần",
+        "hắt hơi liên tục", "hắt hơi nhiều lần", "hắt hơi liên tiếp",
         "hắt hơi", "nhảy mũi", "hắt xì hơi", "hắt xì",
         "sneezing", "sneeze",
     ],
@@ -204,12 +385,22 @@ SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
         "khó thở", "thở khó", "hụt hơi", "thở nặng", "thở gấp",
         "shortness of breath", "breathing difficulty", "dyspnea",
     ],
+
+    # ── TIM MẠCH ──────────────────────────────────────────
     "chest_pain": [
         "đau tức vùng ngực", "tức nặng ngực",
         "đau vùng ngực", "tức ngực nhiều",
         "đau ngực", "tức ngực", "ngực đau", "ngực tức", "đau tim",
         "chest pain", "chest tightness", "chest pressure",
     ],
+    "palpitations": [
+        "tim đập nhanh loạn", "đánh trống ngực mạnh",
+        "tim đập nhanh", "hồi hộp nhiều", "đánh trống ngực",
+        "tim đập mạnh", "hồi hộp", "tim đập loạn",
+        "palpitations", "rapid heartbeat", "tachycardia",
+    ],
+
+    # ── TIÊU HÓA ──────────────────────────────────────────
     "nausea": [
         "cảm giác buồn nôn", "buồn nôn nhiều",
         "muốn nôn", "nôn nao", "buồn nôn",
@@ -236,8 +427,18 @@ SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
     ],
     "bloating": [
         "bụng đầy hơi", "chướng bụng", "đầy bụng",
-        "khó tiêu", "ợ hơi",
+        "khó tiêu", "ợ hơi", "đầy hơi",
         "bloating", "flatulence", "indigestion",
+    ],
+    "acidity": [
+        "ợ chua", "nóng rát thượng vị", "trào ngược",
+        "chua miệng", "rát thực quản", "acid dạ dày",
+        "nóng ruột", "heartburn", "acid reflux", "acidity",
+    ],
+    "ulcers_on_tongue": [
+        "loét miệng", "nhiệt miệng", "loét lưỡi",
+        "vết loét trong miệng", "đau miệng do loét",
+        "mouth ulcers", "canker sores", "oral ulcers",
     ],
     "constipation": [
         "không đi ngoài được", "khó đi ngoài",
@@ -250,6 +451,13 @@ SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
         "mất vị giác ăn", "ăn ít",
         "loss of appetite", "no appetite", "anorexia",
     ],
+    "bloody_stool": [
+        "đi ngoài ra máu", "phân có máu", "máu trong phân",
+        "đại tiện ra máu", "phân đen", "phân đen hắc ín",
+        "bloody stool", "blood in stool", "hematochezia", "melena",
+    ],
+
+    # ── GAN / VÀNG DA ─────────────────────────────────────
     "jaundice": [
         "da vàng mắt", "vàng da vàng mắt",
         "da vàng", "mắt vàng", "vàng mắt", "vàng da",
@@ -257,9 +465,11 @@ SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
     ],
     "dark_urine": [
         "nước tiểu vàng đậm", "tiểu vàng sậm",
-        "nước tiểu sẫm màu", "tiểu sẫm",
+        "nước tiểu sẫm màu", "tiểu sẫm", "nước tiểu nâu",
         "dark urine", "dark colored urine",
     ],
+
+    # ── ĐẦU / THẦN KINH ───────────────────────────────────
     "headache": [
         "đau đầu dữ dội", "nhức đầu nhiều", "đau đầu nhiều",
         "đau đầu", "nhức đầu", "đầu đau", "đầu nhức",
@@ -270,6 +480,18 @@ SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
         "chóng mặt", "hoa mắt", "xoay xở", "choáng váng",
         "dizziness", "vertigo", "lightheadedness",
     ],
+    "spinning_movements": [
+        "cảm giác xoay tròn", "đầu quay tròn", "mọi thứ đang xoay",
+        "cảm giác đất quay", "xoay tròn", "quay tròn",
+        "spinning sensation", "room spinning",
+    ],
+    "blurred_vision": [
+        "mờ mắt", "nhìn không rõ", "nhìn mờ",
+        "tầm nhìn bị mờ", "thị lực giảm", "nhìn đôi",
+        "blurred vision", "vision problems", "visual disturbance",
+    ],
+
+    # ── CƠ THỂ CHUNG ──────────────────────────────────────
     "fatigue": [
         "kiệt sức hoàn toàn", "người mệt lả",
         "mệt mỏi nhiều", "uể oải mệt", "yếu người",
@@ -285,8 +507,47 @@ SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
     "sweating": [
         "đổ mồ hôi nhiều", "mồ hôi ra nhiều",
         "toát mồ hôi", "đổ mồ hôi", "ra mồ hôi", "mồ hôi nhiều",
+        "đổ mồ hôi đêm",
         "sweating", "night sweats", "perspiration",
     ],
+    "weight_loss": [
+        "sụt cân", "giảm cân nhiều", "gầy đi rõ rệt",
+        "giảm cân không rõ nguyên nhân", "gầy sút",
+        "giảm cân", "sụt ký",
+        "weight loss", "losing weight",
+    ],
+    "weight_gain": [
+        "tăng cân bất thường", "tăng cân nhanh",
+        "béo lên", "tăng ký", "tăng cân",
+        "weight gain", "gaining weight",
+    ],
+    "obesity": [
+        "béo phì", "thừa cân nhiều", "quá cân", "mập",
+        "obesity", "overweight",
+    ],
+    "anxiety": [
+        "lo lắng nhiều", "bồn chồn lo âu", "lo âu",
+        "hồi hộp lo lắng", "căng thẳng lo âu",
+        "lo âu", "bồn chồn",
+        "anxiety", "anxious", "worry",
+    ],
+    "restlessness": [
+        "khó ngủ", "trằn trọc", "bồn chồn không yên",
+        "ngủ không được", "khó nghỉ ngơi",
+        "restlessness", "insomnia", "can't sleep",
+    ],
+    "mood_swings": [
+        "thay đổi tâm trạng", "tâm trạng thất thường",
+        "cảm xúc không ổn định", "dễ cáu", "dễ khóc",
+        "mood swings", "emotional instability",
+    ],
+    "cold_hands_and_feets": [
+        "lạnh tay chân", "tay chân lạnh", "lạnh tay lạnh chân",
+        "bàn tay lạnh", "bàn chân lạnh",
+        "cold hands", "cold feet", "cold extremities",
+    ],
+
+    # ── CƠ XƯƠNG KHỚP ─────────────────────────────────────
     "muscle_pain": [
         "đau nhức toàn thân", "đau nhức khắp người",
         "đau cơ nhiều", "nhức mỏi toàn thân",
@@ -303,6 +564,24 @@ SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
         "đau lưng", "lưng đau", "đau thắt lưng", "nhức lưng",
         "back pain", "lower back pain",
     ],
+    "neck_pain": [
+        "đau cổ", "cổ đau", "nhức cổ",
+        "đau vùng cổ", "đau cột sống cổ",
+        "neck pain", "cervical pain",
+    ],
+    "stiff_neck": [
+        "cứng cổ", "cổ cứng", "khó quay đầu",
+        "cổ bị cứng", "cổ không cử động được",
+        "stiff neck", "neck stiffness",
+    ],
+    "swollen_legs": [
+        "chân sưng", "phù chân", "chân bị sưng",
+        "mắt cá chân sưng", "bàn chân sưng", "tay phù",
+        "giãn tĩnh mạch", "tĩnh mạch nổi",
+        "swollen legs", "leg swelling", "edema", "varicose veins",
+    ],
+
+    # ── DA ────────────────────────────────────────────────
     "rash": [
         "nổi mẩn đỏ nhiều", "phát ban khắp người",
         "mẩn ngứa đỏ", "nổi mẩn đỏ", "phát ban đỏ",
@@ -314,16 +593,38 @@ SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
         "ngứa da", "da ngứa", "ngứa",
         "itching", "itchy", "pruritus",
     ],
+    "skin_pimples": [
+        "nổi mụn", "mụn nhiều", "mụn mủ",
+        "mụn trứng cá", "mụn đầu đen", "mụn đầu trắng",
+        "mụn viêm", "mụn bọc",
+        "pimples", "acne", "blackheads", "whiteheads",
+    ],
+    "skin_peeling": [
+        "da bong tróc", "da tróc vảy", "vảy nến",
+        "da khô nứt", "da bong ra", "vảy da",
+        "skin peeling", "skin flaking", "psoriasis scales",
+    ],
+
+    # ── MẮT / TAI ─────────────────────────────────────────
     "eye_redness": [
         "mắt đỏ nhiều", "đỏ mắt nhiều",
-        "đỏ mắt", "mắt đỏ", "viêm mắt", "mắt viêm",
+        "đỏ mắt", "mắt đỏ", "viêm mắt", "mắt viêm", "mắt ngứa",
         "red eyes", "eye redness", "conjunctivitis",
     ],
+    "ear_pain": [
+        "đau tai nhiều", "nhức tai nhiều",
+        "đau tai", "tai đau", "nhức tai",
+        "ear pain", "earache", "otalgia",
+    ],
+
+    # ── HẠCH ──────────────────────────────────────────────
     "swollen_lymph": [
         "hạch cổ sưng to", "nổi hạch nhiều",
         "sưng hạch cổ", "hạch nổi", "sưng hạch", "hạch sưng",
         "swollen lymph nodes", "lymphadenopathy",
     ],
+
+    # ── MẤT GIÁC QUAN ─────────────────────────────────────
     "loss_of_taste": [
         "mất vị giác hoàn toàn", "ăn không cảm nhận được vị",
         "mất vị giác", "không cảm nhận vị", "ăn không thấy vị",
@@ -334,6 +635,8 @@ SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
         "mất khứu giác", "không ngửi được", "ngửi không ra mùi",
         "loss of smell", "anosmia",
     ],
+
+    # ── TIỂU TIỆN ─────────────────────────────────────────
     "frequent_urination": [
         "đi tiểu liên tục", "đi tiểu rất nhiều",
         "tiểu thường xuyên", "hay đi tiểu", "đi tiểu nhiều",
@@ -345,57 +648,118 @@ SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
         "tiểu buốt", "đau khi tiểu", "tiểu đau", "buốt khi đi tiểu",
         "burning urination", "painful urination", "dysuria",
     ],
-    "palpitations": [
-        "tim đập nhanh loạn", "đánh trống ngực mạnh",
-        "tim đập nhanh", "hồi hộp nhiều", "đánh trống ngực",
-        "tim đập mạnh", "hồi hộp",
-        "palpitations", "rapid heartbeat", "tachycardia",
+
+    # ── CHUYỂN HÓA / NỘI TIẾT ────────────────────────────
+    "excessive_hunger": [
+        "đói nhiều", "ăn nhiều mà vẫn đói",
+        "thèm ăn nhiều", "luôn cảm thấy đói",
+        "excessive hunger", "polyphagia", "always hungry",
     ],
-    "ear_pain": [
-        "đau tai nhiều", "nhức tai nhiều",
-        "đau tai", "tai đau", "nhức tai",
-        "ear pain", "earache", "otalgia",
+    "irregular_sugar_level": [
+        "đường huyết bất thường", "đường huyết dao động",
+        "đường huyết cao", "đường huyết thấp",
+        "blood sugar abnormal", "irregular glucose",
+    ],
+
+    # ── TIỀN SỬ (để match với rules Kaggle) ───────────────
+    "history_alcohol": [
+        "uống nhiều rượu", "nghiện rượu", "hay uống rượu bia",
+        "lạm dụng rượu", "uống rượu nhiều năm",
+        "alcohol abuse", "heavy drinking",
+    ],
+    "family_history": [
+        "trong nhà có người bị", "bố mẹ mắc", "gia đình có tiền sử",
+        "anh chị em mắc bệnh", "tiền sử gia đình",
+        "family history",
+    ],
+    "history_blood": [
+        "truyền máu", "nhận máu không an toàn",
+        "tiêm chích không vô trùng",
+        "blood transfusion", "unsterile injection",
+    ],
+    "history_contacts": [
+        "quan hệ không an toàn", "quan hệ ngoài hôn nhân",
+        "unsafe sex",
     ],
 }
 
 
-# ─── DISPLAY NAMES ─────────────────────────────────────────
+# ─── DISPLAY NAMES (v3.0 — đầy đủ) ────────────────────────
 SYMPTOM_DISPLAY: Dict[str, str] = {
+    # Hô hấp
     "fever":               "Sốt",
     "high_fever":          "Sốt cao",
     "cough":               "Ho",
+    "phlegm":              "Có đờm",
+    "blood_in_sputum":     "Ho ra máu",
     "runny_nose":          "Sổ mũi",
     "sore_throat":         "Đau họng",
     "sneezing":            "Hắt hơi",
     "shortness_of_breath": "Khó thở",
+    # Tim mạch
     "chest_pain":          "Đau ngực",
+    "palpitations":        "Tim đập nhanh / hồi hộp",
+    # Tiêu hóa
     "nausea":              "Buồn nôn",
     "vomiting":            "Nôn mửa",
     "diarrhea":            "Tiêu chảy",
     "abdominal_pain":      "Đau bụng",
-    "bloating":            "Đầy bụng",
+    "bloating":            "Đầy bụng / khó tiêu",
+    "acidity":             "Ợ chua / trào ngược",
+    "ulcers_on_tongue":    "Loét miệng / nhiệt miệng",
     "constipation":        "Táo bón",
     "loss_of_appetite":    "Chán ăn",
-    "jaundice":            "Vàng da",
+    "bloody_stool":        "Đi ngoài ra máu",
+    # Gan
+    "jaundice":            "Vàng da / vàng mắt",
     "dark_urine":          "Nước tiểu sẫm màu",
+    # Đầu / Thần kinh
     "headache":            "Đau đầu",
     "dizziness":           "Chóng mặt",
+    "spinning_movements":  "Cảm giác xoay tròn",
+    "blurred_vision":      "Mờ mắt",
+    # Cơ thể chung
     "fatigue":             "Mệt mỏi",
-    "chills":              "Ớn lạnh",
+    "chills":              "Ớn lạnh / rùng mình",
     "sweating":            "Đổ mồ hôi",
+    "weight_loss":         "Sụt cân",
+    "weight_gain":         "Tăng cân bất thường",
+    "obesity":             "Béo phì / thừa cân",
+    "anxiety":             "Lo âu / bồn chồn",
+    "restlessness":        "Khó ngủ / trằn trọc",
+    "mood_swings":         "Tâm trạng thất thường",
+    "cold_hands_and_feets":"Lạnh tay chân",
+    # Cơ xương khớp
     "muscle_pain":         "Đau cơ / nhức người",
     "joint_pain":          "Đau khớp",
     "back_pain":           "Đau lưng",
+    "neck_pain":           "Đau cổ",
+    "stiff_neck":          "Cứng cổ",
+    "swollen_legs":        "Chân / tay sưng phù",
+    # Da
     "rash":                "Phát ban / nổi mẩn",
-    "itching":             "Ngứa",
+    "itching":             "Ngứa da",
+    "skin_pimples":        "Nổi mụn",
+    "skin_peeling":        "Da bong tróc / vảy",
+    # Mắt / Tai
     "eye_redness":         "Đỏ mắt",
+    "ear_pain":            "Đau tai",
+    # Hạch
     "swollen_lymph":       "Sưng hạch",
+    # Giác quan
     "loss_of_taste":       "Mất vị giác",
     "loss_of_smell":       "Mất khứu giác",
+    # Tiểu tiện
     "frequent_urination":  "Tiểu nhiều / thường xuyên",
     "burning_urination":   "Tiểu buốt / đau",
-    "palpitations":        "Tim đập nhanh / hồi hộp",
-    "ear_pain":            "Đau tai",
+    # Chuyển hóa
+    "excessive_hunger":    "Đói nhiều / thèm ăn",
+    "irregular_sugar_level": "Đường huyết bất thường",
+    # Tiền sử
+    "history_alcohol":     "Tiền sử uống rượu nhiều",
+    "family_history":      "Tiền sử gia đình",
+    "history_blood":       "Tiền sử truyền máu / tiêm chích",
+    "history_contacts":    "Tiền sử quan hệ không an toàn",
 }
 
 
@@ -465,10 +829,6 @@ def _get_intensity(text: str, kw_start: int) -> float:
 
 
 def extract_symptoms_with_context(text: str) -> Dict:
-    """
-    Original rule-based extraction (v2.0, unchanged).
-    Prefer extract_symptoms_hybrid() for new code.
-    """
     norm = normalize_text(text)
     neg_spans = _find_negation_spans(norm)
 

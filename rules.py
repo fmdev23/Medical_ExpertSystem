@@ -1,514 +1,908 @@
-"""
-=============================================================
-  KNOWLEDGE BASE — Medical Chatbot
-=============================================================
-
-  [1] Tinh chỉnh confidence dựa trên đặc hiệu lâm sàng
-  [2] Bổ sung triệu chứng phân biệt (nâng cao if_any)
-  [3] Thêm 2 rule mới: Migraine, Viêm dạ dày mãn
-  [4] if_none được cập nhật chính xác hơn để
-      tránh false positive giữa các bệnh gần nhau
-
-  Cấu trúc rule (không thay đổi để tương thích engine):
-  {
-    "id":         mã rule duy nhất
-    "disease":    tên bệnh tiếng Anh (key)
-    "name_vi":    tên bệnh tiếng Việt
-    "if_all":     triệu chứng BẮT BUỘC (AND)
-    "if_any":     triệu chứng PHỤ (OR ≥1)
-    "if_none":    triệu chứng LOẠI TRỪ (NOT)
-    "confidence": độ tin cậy gốc [0.0–1.0]
-    "explain":    giải thích kết luận
-    "advice":     lời khuyên sơ bộ
-    "severity":   "low" | "medium" | "high"
-    "see_doctor": True/False
-  }
-=============================================================
-"""
+# file rules.py
 
 RULES = [
-
-    # ─────────────────────────────────────────────────────
-    # R001. CẢM CÚM (Influenza)
-    # Đặc trưng: sốt + đau cơ (hai triệu chứng khởi phát đột ngột)
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R001",
-        "disease": "influenza",
-        "name_vi": "Cúm (Influenza)",
-        "if_all": ["fever", "muscle_pain"],
-        "if_any": ["cough", "headache", "fatigue", "chills", "sore_throat", "sweating"],
-        "if_none": ["rash", "jaundice", "loss_of_taste"],
-        "confidence": 0.83,
-        "explain": (
-            "Sốt khởi phát đột ngột kèm đau cơ toàn thân là đặc trưng phân biệt "
-            "cúm với cảm lạnh. Ớn lạnh, mệt mỏi và đau đầu càng củng cố."
-        ),
-        "advice": (
-            "Nghỉ ngơi, uống nhiều nước ấm. Dùng paracetamol để hạ sốt và giảm đau cơ. "
-            "Tránh tiếp xúc người xung quanh. "
-            "Đến gặp bác sĩ nếu sốt > 39°C kéo dài trên 3 ngày, "
-            "hoặc có khó thở, đau ngực."
-        ),
-        "severity": "medium",
-        "see_doctor": False,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R002. CẢM LẠNH (Common Cold)
-    # Đặc trưng: sổ mũi + không đau cơ + không sốt cao
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R002",
-        "disease": "common_cold",
-        "name_vi": "Cảm lạnh thông thường",
-        "if_all": ["runny_nose"],
-        "if_any": ["cough", "sneezing", "sore_throat", "headache", "fatigue"],
-        "if_none": ["high_fever", "muscle_pain", "rash", "loss_of_taste"],
-        "confidence": 0.80,
-        "explain": (
-            "Sổ mũi là triệu chứng chủ đạo, không kèm sốt cao hay đau cơ. "
-            "Hắt hơi và đau họng nhẹ cho thấy viêm đường hô hấp trên do virus."
-        ),
-        "advice": (
-            "Uống nhiều nước ấm, nghỉ ngơi đầy đủ. "
-            "Xịt mũi nước muối sinh lý để giảm nghẹt mũi. "
-            "Bệnh thường tự khỏi trong 7–10 ngày."
-        ),
-        "severity": "low",
-        "see_doctor": False,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R003. COVID-19
-    # Đặc trưng: sốt + mất vị/khứu giác
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R003",
-        "disease": "covid_19",
-        "name_vi": "COVID-19",
-        "if_all": ["fever"],
-        "if_any": ["loss_of_taste", "loss_of_smell", "shortness_of_breath", "cough", "fatigue"],
-        "if_none": ["rash", "jaundice", "runny_nose"],
-        "confidence": 0.85,
-        "explain": (
-            "Mất vị giác và mất khứu giác kết hợp sốt là dấu hiệu rất đặc hiệu "
-            "của COVID-19. Khó thở và ho khan càng làm tăng khả năng."
-        ),
-        "advice": (
-            "Tự cách ly ngay lập tức. Làm test COVID (test nhanh hoặc PCR). "
-            "Theo dõi SpO2: nếu < 95% hoặc khó thở rõ → đến cơ sở y tế ngay."
-        ),
-        "severity": "high",
-        "see_doctor": True,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R004. VIÊM PHỔI (Pneumonia)
-    # Đặc trưng: tam chứng sốt + ho + khó thở
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R004",
-        "disease": "pneumonia",
-        "name_vi": "Viêm phổi",
-        "if_all": ["fever", "cough", "shortness_of_breath"],
-        "if_any": ["chest_pain", "fatigue", "chills", "muscle_pain"],
-        "if_none": ["loss_of_taste", "rash", "runny_nose"],
-        "confidence": 0.82,
-        "explain": (
-            "Tam chứng sốt + ho + khó thở là cảnh báo viêm phổi. "
-            "Đau ngực kiểu màng phổi và ớn lạnh dữ dội càng tăng nguy cơ."
-        ),
-        "advice": (
-            "Đây là tình trạng nguy hiểm. Cần đến bệnh viện ngay để "
-            "chụp X-quang phổi, xét nghiệm máu và điều trị kịp thời."
-        ),
-        "severity": "high",
-        "see_doctor": True,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R005. VIÊM HỌNG / VIÊM AMIDAN
-    # Đặc trưng: đau họng chủ đạo + sưng hạch
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R005",
-        "disease": "pharyngitis",
-        "name_vi": "Viêm họng / Viêm amidan",
-        "if_all": ["sore_throat"],
-        "if_any": ["fever", "swollen_lymph", "fatigue", "headache", "ear_pain"],
-        "if_none": ["cough", "runny_nose", "muscle_pain"],
-        "confidence": 0.78,
-        "explain": (
-            "Đau họng là triệu chứng chủ đạo. Sưng hạch cổ và sốt "
-            "gợi ý viêm họng do liên cầu khuẩn (cần kháng sinh). "
-            "Không có ho/sổ mũi phân biệt với cảm lạnh."
-        ),
-        "advice": (
-            "Súc miệng nước muối ấm, uống nhiều nước. "
-            "Gặp bác sĩ nếu sốt cao (≥38.5°C), nuốt rất khó hoặc "
-            "hạch cổ sưng to để kiểm tra có cần kháng sinh không."
-        ),
-        "severity": "low",
-        "see_doctor": False,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R006. VIÊM PHẾ QUẢN (Bronchitis)
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R006",
-        "disease": "bronchitis",
-        "name_vi": "Viêm phế quản",
-        "if_all": ["cough"],
-        "if_any": ["chest_pain", "shortness_of_breath", "fatigue", "fever", "sore_throat"],
-        "if_none": ["rash", "diarrhea", "loss_of_taste"],
-        "confidence": 0.72,
-        "explain": (
-            "Ho kéo dài (đặc biệt có đờm) kèm tức ngực hoặc khó thở "
-            "gợi ý viêm phế quản. Thường do virus, đôi khi do vi khuẩn."
-        ),
-        "advice": (
-            "Uống nhiều nước, nghỉ ngơi, tránh khói bụi và thuốc lá. "
-            "Có thể dùng thuốc long đờm. "
-            "Đến bác sĩ nếu ho > 2 tuần, đờm có máu hoặc khó thở tăng."
-        ),
-        "severity": "medium",
-        "see_doctor": False,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R007. NGỘ ĐỘC THỰC PHẨM
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R007",
-        "disease": "food_poisoning",
-        "name_vi": "Ngộ độc thực phẩm",
-        "if_all": ["nausea", "vomiting"],
-        "if_any": ["diarrhea", "abdominal_pain", "fever", "sweating"],
-        "if_none": ["jaundice", "chest_pain", "rash"],
-        "confidence": 0.83,
-        "explain": (
-            "Buồn nôn và nôn mửa xuất hiện nhanh sau bữa ăn, "
-            "kèm tiêu chảy và đau bụng — dấu hiệu điển hình ngộ độc thực phẩm."
-        ),
-        "advice": (
-            "Bù nước và điện giải ngay (oresol). Ăn nhạt, tránh dầu mỡ. "
-            "Đến cấp cứu nếu nôn mửa kéo dài > 6 giờ, "
-            "không uống được nước, hoặc có máu trong phân/chất nôn."
-        ),
-        "severity": "medium",
-        "see_doctor": False,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R008. VIÊM DẠ DÀY – RUỘT
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R008",
-        "disease": "gastroenteritis",
-        "name_vi": "Viêm dạ dày – ruột",
-        "if_all": ["diarrhea", "abdominal_pain"],
-        "if_any": ["nausea", "vomiting", "fever", "bloating", "loss_of_appetite"],
-        "if_none": ["jaundice", "dark_urine", "chest_pain"],
-        "confidence": 0.78,
-        "explain": (
-            "Tiêu chảy kèm đau bụng, buồn nôn — viêm dạ dày ruột. "
-            "Nguyên nhân thường do virus (norovirus, rotavirus) hoặc vi khuẩn."
-        ),
-        "advice": (
-            "Uống oresol để bù điện giải. Ăn cháo loãng, tránh sữa và thức ăn béo. "
-            "Rửa tay thường xuyên. Đến bác sĩ nếu kéo dài > 2 ngày, "
-            "có máu trong phân, hoặc trẻ em/người già."
-        ),
-        "severity": "medium",
-        "see_doctor": False,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R009. DỊ ỨNG
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R009",
-        "disease": "allergy",
-        "name_vi": "Dị ứng",
-        "if_all": ["itching"],
-        "if_any": ["rash", "sneezing", "runny_nose", "eye_redness", "swollen_lymph"],
-        "if_none": ["fever", "muscle_pain", "chest_pain"],
-        "confidence": 0.80,
-        "explain": (
-            "Ngứa kết hợp phát ban, đỏ mắt, hắt hơi không kèm sốt "
-            "là đặc trưng của phản ứng dị ứng (thức ăn, phấn hoa, thuốc...)."
-        ),
-        "advice": (
-            "Xác định và tránh tác nhân gây dị ứng. "
-            "Thuốc kháng histamine (loratadine, cetirizine) giúp giảm triệu chứng. "
-            "⚠️ Nếu có sưng mặt, sưng cổ họng hoặc khó thở → gọi cấp cứu ngay."
-        ),
-        "severity": "low",
-        "see_doctor": False,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R010. ĐAU MẮT ĐỎ (Viêm kết mạc)
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R010",
-        "disease": "conjunctivitis",
-        "name_vi": "Viêm kết mạc (Đau mắt đỏ)",
-        "if_all": ["eye_redness"],
-        "if_any": ["itching", "runny_nose", "fever", "swollen_lymph"],
-        "if_none": ["chest_pain", "shortness_of_breath", "muscle_pain"],
-        "confidence": 0.80,
-        "explain": (
-            "Đỏ mắt là triệu chứng chính. Kèm ngứa mắt và chảy nước mắt "
-            "— có thể do virus, vi khuẩn hoặc dị ứng."
-        ),
-        "advice": (
-            "Không dụi mắt, rửa tay thường xuyên. "
-            "Nhỏ nước muối sinh lý rửa mắt. "
-            "Đến bác sĩ mắt nếu có mủ, mờ mắt hoặc đau nhức nhiều."
-        ),
-        "severity": "low",
-        "see_doctor": False,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R011. NHIỄM KHUẨN ĐƯỜNG TIẾT NIỆU (UTI)
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R011",
-        "disease": "uti",
-        "name_vi": "Nhiễm khuẩn đường tiết niệu (UTI)",
-        "if_all": ["burning_urination"],
-        "if_any": ["frequent_urination", "abdominal_pain", "fever", "back_pain"],
-        "if_none": ["diarrhea", "rash", "vomiting"],
-        "confidence": 0.84,
-        "explain": (
-            "Tiểu buốt kết hợp tiểu nhiều và đau vùng bụng dưới "
-            "là dấu hiệu điển hình của nhiễm khuẩn đường tiết niệu. "
-            "Đau lưng + sốt có thể gợi ý viêm thận bể thận."
-        ),
-        "advice": (
-            "Uống nhiều nước (2–3 lít/ngày). "
-            "Cần gặp bác sĩ để xét nghiệm nước tiểu và kháng sinh phù hợp. "
-            "Không tự dùng kháng sinh khi chưa có chỉ định."
-        ),
-        "severity": "medium",
-        "see_doctor": True,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R012. VIÊM GAN (Hepatitis)
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R012",
-        "disease": "hepatitis",
-        "name_vi": "Viêm gan",
-        "if_all": ["jaundice"],
-        "if_any": ["fatigue", "dark_urine", "abdominal_pain", "nausea", "loss_of_appetite", "fever"],
-        "if_none": ["rash", "muscle_pain"],
-        "confidence": 0.84,
-        "explain": (
-            "Vàng da + vàng mắt kết hợp mệt mỏi và nước tiểu sẫm màu "
-            "là dấu hiệu viêm gan điển hình (A, B, C hoặc nguyên nhân khác)."
-        ),
-        "advice": (
-            "Đây là dấu hiệu nghiêm trọng — cần đến bệnh viện ngay. "
-            "Xét nghiệm máu để xác định loại viêm gan và chức năng gan."
-        ),
-        "severity": "high",
-        "see_doctor": True,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R013. VẤN ĐỀ TIM MẠCH KHẨN CẤP
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R013",
-        "disease": "cardiac_issue",
-        "name_vi": "Vấn đề tim mạch (cần loại trừ)",
-        "if_all": ["chest_pain"],
-        "if_any": ["shortness_of_breath", "palpitations", "sweating", "dizziness", "nausea"],
-        "if_none": ["cough", "runny_nose", "rash"],
-        "confidence": 0.76,
-        "explain": (
-            "Đau ngực kèm khó thở, hồi hộp, đổ mồ hôi lạnh hoặc chóng mặt "
-            "là dấu hiệu cần loại trừ hội chứng vành cấp (nhồi máu cơ tim)."
-        ),
-        "advice": (
-            "⚠️ ĐÂY CÓ THỂ LÀ TRƯỜNG HỢP KHẨN CẤP ĐE DỌA TÍNH MẠNG.\n"
-            "Gọi cấp cứu 115 hoặc đến phòng cấp cứu ngay lập tức.\n"
-            "Không tự lái xe. Nếu có aspirin và không dị ứng, nhai 1 viên 325mg."
-        ),
-        "severity": "high",
-        "see_doctor": True,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R014. ĐAU ĐẦU DO HUYẾT ÁP / CĂNG THẲNG
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R014",
-        "disease": "hypertension_headache",
-        "name_vi": "Đau đầu do huyết áp / Căng thẳng",
-        "if_all": ["headache"],
-        "if_any": ["dizziness", "palpitations", "fatigue", "sweating"],
-        "if_none": ["fever", "rash", "vomiting", "muscle_pain", "cough"],
-        "confidence": 0.68,
-        "explain": (
-            "Đau đầu kết hợp chóng mặt, hồi hộp không kèm sốt "
-            "có thể liên quan đến huyết áp cao, căng thẳng hoặc mệt mỏi."
-        ),
-        "advice": (
-            "Nghỉ ngơi trong phòng yên tĩnh, tối. Đo huyết áp nếu có thiết bị. "
-            "Uống đủ nước, tránh caffeine. "
-            "⚠️ Nếu đau đầu dữ dội đột ngột kiểu 'sét đánh' → gọi cấp cứu ngay "
-            "(nghi xuất huyết não)."
-        ),
-        "severity": "medium",
-        "see_doctor": False,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R015. TRIỆU CHỨNG LIÊN QUAN TIỂU ĐƯỜNG
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R015",
-        "disease": "diabetes_symptoms",
-        "name_vi": "Triệu chứng liên quan tiểu đường",
-        "if_all": ["frequent_urination"],
-        "if_any": ["fatigue", "dizziness", "loss_of_appetite", "sweating", "headache"],
-        "if_none": ["fever", "burning_urination", "rash"],
-        "confidence": 0.68,
-        "explain": (
-            "Đi tiểu nhiều kết hợp mệt mỏi, chóng mặt (không có sốt hay tiểu buốt) "
-            "có thể là biểu hiện của rối loạn đường huyết."
-        ),
-        "advice": (
-            "Xét nghiệm đường huyết tại hiệu thuốc hoặc cơ sở y tế. "
-            "Hạn chế đồ ngọt, tinh bột tinh chế. Tăng vận động. "
-            "Gặp bác sĩ để được chẩn đoán và tư vấn chế độ điều trị."
-        ),
-        "severity": "medium",
-        "see_doctor": True,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R016. SỐT XUẤT HUYẾT DENGUE
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R016",
-        "disease": "dengue_fever",
-        "name_vi": "Sốt xuất huyết (Dengue)",
-        "if_all": ["high_fever", "muscle_pain"],
-        "if_any": ["headache", "rash", "joint_pain", "nausea", "fatigue", "eye_redness"],
-        "if_none": ["runny_nose", "cough", "loss_of_taste"],
-        "confidence": 0.84,
-        "explain": (
-            "Sốt cao đột ngột 39–40°C kèm đau cơ khớp dữ dội là đặc trưng dengue. "
-            "Phát ban, đau sau hốc mắt càng đặc hiệu. "
-            "Bệnh phổ biến tại Việt Nam, đặc biệt mùa mưa."
-        ),
-        "advice": (
-            "⚠️ Bệnh nguy hiểm — không dùng aspirin hay ibuprofen (gây xuất huyết). "
-            "Chỉ dùng paracetamol để hạ sốt. Uống nhiều nước/oresol. "
-            "Đến bệnh viện ngay để xét nghiệm máu, theo dõi tiểu cầu."
-        ),
-        "severity": "high",
-        "see_doctor": True,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R017. VIÊM TAI GIỮA
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R017",
-        "disease": "otitis",
-        "name_vi": "Viêm tai giữa",
-        "if_all": ["ear_pain"],
-        "if_any": ["fever", "headache", "runny_nose", "sore_throat"],
-        "if_none": ["rash", "chest_pain", "shortness_of_breath"],
-        "confidence": 0.76,
-        "explain": (
-            "Đau tai kèm sốt và nghẹt mũi thường gặp trong viêm tai giữa, "
-            "hay xảy ra sau cảm lạnh, đặc biệt ở trẻ em."
-        ),
-        "advice": (
-            "Không tự ngoáy tai hay nhỏ bất kỳ thứ gì vào tai. "
-            "Gặp bác sĩ tai-mũi-họng để kiểm tra màng nhĩ. "
-            "Có thể cần kháng sinh nếu do vi khuẩn."
-        ),
-        "severity": "medium",
-        "see_doctor": True,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R018. ĐAU NỬA ĐẦU (Migraine) [MỚI]
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R018",
-        "disease": "migraine",
-        "name_vi": "Đau nửa đầu (Migraine)",
-        "if_all": ["headache"],
-        "if_any": ["nausea", "dizziness", "vomiting", "fatigue"],
-        "if_none": ["fever", "rash", "muscle_pain", "cough", "runny_nose"],
-        "confidence": 0.70,
-        "explain": (
-            "Đau đầu dữ dội (thường một bên) kèm buồn nôn và nhạy cảm ánh sáng "
-            "là đặc trưng của migraine. Không có sốt hay triệu chứng nhiễm khuẩn."
-        ),
-        "advice": (
-            "Nằm nghỉ trong phòng tối, yên tĩnh. Chườm lạnh trán. "
-            "Paracetamol hoặc ibuprofen (nếu không chống chỉ định) có thể giúp. "
-            "Nếu migraine tái phát thường xuyên → gặp bác sĩ để được điều trị dự phòng."
-        ),
-        "severity": "medium",
-        "see_doctor": False,
-    },
-
-    # ─────────────────────────────────────────────────────
-    # R019. VIÊM DẠ DÀY MÃN TÍNH [MỚI]
-    # ─────────────────────────────────────────────────────
-    {
-        "id": "R019",
-        "disease": "chronic_gastritis",
-        "name_vi": "Viêm loét dạ dày",
-        "if_all": ["abdominal_pain"],
-        "if_any": ["nausea", "bloating", "loss_of_appetite", "vomiting"],
-        "if_none": ["fever", "diarrhea", "jaundice", "rash"],
-        "confidence": 0.72,
-        "explain": (
-            "Đau vùng thượng vị (đau âm ỉ hoặc đau theo bữa ăn) kèm đầy bụng, "
-            "buồn nôn và chán ăn gợi ý viêm loét dạ dày, không kèm sốt hay tiêu chảy."
-        ),
-        "advice": (
-            "Ăn đúng giờ, tránh thức ăn chua cay và rượu bia. "
-            "Không nằm ngay sau ăn. Tránh dùng NSAID (aspirin, ibuprofen). "
-            "Gặp bác sĩ nếu đau dữ dội, nôn ra máu hoặc đại tiện phân đen."
-        ),
-        "severity": "medium",
-        "see_doctor": False,
-    },
-
+{
+    "id": "R100",
+    "disease": "(vertigo)_paroymsal__positional_vertigo",
+    "name_vi": "Chóng mặt tư thế kịch phát",
+    "if_all": [
+        "vomiting",
+        "headache",
+        "nausea",
+        "spinning_movements",
+        "loss_of_balance",
+        "unsteadiness"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Benign paroxysmal positional vertigo (BPPV) is one of the most common causes of vertigo — the sudden sensation that you're spinning or that the inside of your head is spinning. Benign paroxysmal positional vertigo causes brief episodes of mild to intense dizziness.",
+    "advice": "- lie down\n- avoid sudden change in body\n- avoid abrupt head movment\n- relax",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R101",
+    "disease": "aids",
+    "name_vi": "AIDS",
+    "if_all": [
+        "muscle_wasting",
+        "patches_in_throat",
+        "high_fever",
+        "extra_marital_contacts"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Acquired immunodeficiency syndrome (AIDS) is a chronic, potentially life-threatening condition caused by the human immunodeficiency virus (HIV). By damaging your immune system, HIV interferes with your body's ability to fight infection and disease.",
+    "advice": "- avoid open cuts\n- wear ppe if possible\n- consult doctor\n- follow up",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R102",
+    "disease": "acne",
+    "name_vi": "Mụn trứng cá",
+    "if_all": [
+        "skin_rash",
+        "pus_filled_pimples",
+        "blackheads",
+        "scurring"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Acne vulgaris is the formation of comedones, papules, pustules, nodules, and/or cysts as a result of obstruction and inflammation of pilosebaceous units (hair follicles and their accompanying sebaceous gland). Acne develops on the face and upper trunk. It most often affects adolescents.",
+    "advice": "- bath twice\n- avoid fatty spicy food\n- drink plenty of water\n- avoid too many products",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R103",
+    "disease": "alcoholic_hepatitis",
+    "name_vi": "Viêm gan do rượu",
+    "if_all": [
+        "vomiting",
+        "yellowish_skin",
+        "abdominal_pain",
+        "swelling_of_stomach",
+        "distention_of_abdomen",
+        "history_of_alcohol_consumption",
+        "fluid_overload"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Alcoholic hepatitis is a diseased, inflammatory condition of the liver caused by heavy alcohol consumption over an extended period of time. It's also aggravated by binge drinking and ongoing alcohol use. If you develop this condition, you must stop drinking alcohol",
+    "advice": "- stop alcohol consumption\n- consult doctor\n- medication\n- follow up",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R104",
+    "disease": "allergy",
+    "name_vi": "Dị ứng",
+    "if_all": [
+        "continuous_sneezing",
+        "shivering",
+        "chills",
+        "watering_from_eyes"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "An allergy is an immune system response to a foreign substance that's not typically harmful to your body.They can include certain foods, pollen, or pet dander. Your immune system's job is to keep you healthy by fighting harmful pathogens.",
+    "advice": "- apply calamine\n- cover area with bandage\n- use ice to compress itching",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R105",
+    "disease": "arthritis",
+    "name_vi": "Viêm khớp",
+    "if_all": [
+        "muscle_weakness",
+        "stiff_neck",
+        "swelling_joints",
+        "movement_stiffness",
+        "painful_walking"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Arthritis is the swelling and tenderness of one or more of your joints. The main symptoms of arthritis are joint pain and stiffness, which typically worsen with age. The most common types of arthritis are osteoarthritis and rheumatoid arthritis.",
+    "advice": "- exercise\n- use hot and cold therapy\n- try acupuncture\n- massage",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R106",
+    "disease": "bronchial_asthma",
+    "name_vi": "Hen phế quản",
+    "if_all": [
+        "fatigue",
+        "cough",
+        "high_fever",
+        "breathlessness",
+        "family_history",
+        "mucoid_sputum"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Bronchial asthma is a medical condition which causes the airway path of the lungs to swell and narrow. Due to this swelling, the air path produces excess mucus making it hard to breathe, which results in coughing, short breath, and wheezing. The disease is chronic and interferes with daily working.",
+    "advice": "- switch to loose cloothing\n- take deep breaths\n- get away from trigger\n- seek help",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R107",
+    "disease": "cervical_spondylosis",
+    "name_vi": "Thoái hóa đốt sống cổ",
+    "if_all": [
+        "back_pain",
+        "weakness_in_limbs",
+        "neck_pain",
+        "dizziness",
+        "loss_of_balance"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Cervical spondylosis is a general term for age-related wear and tear affecting the spinal disks in your neck. As the disks dehydrate and shrink, signs of osteoarthritis develop, including bony projections along the edges of bones (bone spurs).",
+    "advice": "- use heating pad or cold pack\n- exercise\n- take otc pain reliver\n- consult doctor",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R108",
+    "disease": "chicken_pox",
+    "name_vi": "Thủy đậu",
+    "if_all": [
+        "itching",
+        "skin_rash",
+        "fatigue",
+        "lethargy",
+        "high_fever",
+        "headache",
+        "loss_of_appetite",
+        "mild_fever",
+        "swelled_lymph_nodes",
+        "malaise",
+        "red_spots_over_body"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Chickenpox is a highly contagious disease caused by the varicella-zoster virus (VZV). It can cause an itchy, blister-like rash. The rash first appears on the chest, back, and face, and then spreads over the entire body, causing between 250 and 500 itchy blisters.",
+    "advice": "- use neem in bathing\n- consume neem leaves\n- take vaccine\n- avoid public places",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R109",
+    "disease": "chronic_cholestasis",
+    "name_vi": "Ứ mật mãn tính",
+    "if_all": [
+        "itching",
+        "vomiting",
+        "yellowish_skin",
+        "nausea",
+        "loss_of_appetite",
+        "abdominal_pain",
+        "yellowing_of_eyes"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Chronic cholestatic diseases, whether occurring in infancy, childhood or adulthood, are characterized by defective bile acid transport from the liver to the intestine, which is caused by primary damage to the biliary epithelium in most cases",
+    "advice": "- cold baths\n- anti itch medicine\n- consult doctor\n- eat healthy",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R110",
+    "disease": "common_cold",
+    "name_vi": "Cảm lạnh",
+    "if_all": [
+        "continuous_sneezing",
+        "chills",
+        "fatigue",
+        "cough",
+        "high_fever",
+        "headache",
+        "swelled_lymph_nodes",
+        "malaise",
+        "phlegm",
+        "throat_irritation",
+        "redness_of_eyes",
+        "sinus_pressure",
+        "runny_nose",
+        "congestion",
+        "chest_pain",
+        "loss_of_smell",
+        "muscle_pain"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "The common cold is a viral infection of your nose and throat (upper respiratory tract). It's usually harmless, although it might not feel that way. Many types of viruses can cause a common cold.",
+    "advice": "- drink vitamin c rich drinks\n- take vapour\n- avoid cold food\n- keep fever in check",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R111",
+    "disease": "dengue",
+    "name_vi": "Sốt xuất huyết Dengue",
+    "if_all": [
+        "skin_rash",
+        "chills",
+        "joint_pain",
+        "vomiting",
+        "fatigue",
+        "high_fever",
+        "headache",
+        "nausea",
+        "loss_of_appetite",
+        "pain_behind_the_eyes",
+        "back_pain",
+        "malaise",
+        "muscle_pain",
+        "red_spots_over_body"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "an acute infectious disease caused by a flavivirus (species Dengue virus of the genus Flavivirus), transmitted by aedes mosquitoes, and characterized by headache, severe joint pain, and a rash. — called also breakbone fever, dengue fever.",
+    "advice": "- drink papaya leaf juice\n- avoid fatty spicy food\n- keep mosquitos away\n- keep hydrated",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R112",
+    "disease": "diabetes_",
+    "name_vi": "Diabetes ",
+    "if_all": [
+        "fatigue",
+        "weight_loss",
+        "restlessness",
+        "lethargy",
+        "irregular_sugar_level",
+        "blurred_and_distorted_vision",
+        "obesity",
+        "excessive_hunger",
+        "increased_appetite",
+        "polyuria"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Chưa có mô tả chi tiết.",
+    "advice": "Cần gặp bác sĩ để tư vấn thêm.",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R113",
+    "disease": "dimorphic_hemmorhoids(piles)",
+    "name_vi": "Dimorphic hemmorhoids(piles)",
+    "if_all": [
+        "constipation",
+        "pain_during_bowel_movements",
+        "pain_in_anal_region",
+        "bloody_stool",
+        "irritation_in_anus"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Chưa có mô tả chi tiết.",
+    "advice": "- avoid fatty spicy food\n- consume witch hazel\n- warm bath with epsom salt\n- consume alovera juice",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R114",
+    "disease": "drug_reaction",
+    "name_vi": "Phản ứng thuốc",
+    "if_all": [
+        "itching",
+        "skin_rash",
+        "stomach_pain",
+        "burning_micturition",
+        "spotting_ urination"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "An adverse drug reaction (ADR) is an injury caused by taking medication. ADRs may occur following a single dose or prolonged administration of a drug or result from the combination of two or more drugs.",
+    "advice": "- stop irritation\n- consult nearest hospital\n- stop taking drug\n- follow up",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R115",
+    "disease": "fungal_infection",
+    "name_vi": "Nhiễm nấm",
+    "if_all": [
+        "itching",
+        "skin_rash",
+        "nodal_skin_eruptions",
+        "dischromic _patches"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "In humans, fungal infections occur when an invading fungus takes over an area of the body and is too much for the immune system to handle. Fungi can live in the air, soil, water, and plants. There are also some fungi that live naturally in the human body. Like many microbes, there are helpful fungi and harmful fungi.",
+    "advice": "- bath twice\n- use detol or neem in bathing water\n- keep infected area dry\n- use clean cloths",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R116",
+    "disease": "gerd",
+    "name_vi": "Trào ngược dạ dày thực quản (GERD)",
+    "if_all": [
+        "stomach_pain",
+        "acidity",
+        "ulcers_on_tongue",
+        "vomiting",
+        "cough",
+        "chest_pain"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Gastroesophageal reflux disease, or GERD, is a digestive disorder that affects the lower esophageal sphincter (LES), the ring of muscle between the esophagus and stomach. Many people, including pregnant women, suffer from heartburn or acid indigestion caused by GERD.",
+    "advice": "- avoid fatty spicy food\n- avoid lying down after eating\n- maintain healthy weight\n- exercise",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R117",
+    "disease": "gastroenteritis",
+    "name_vi": "Viêm dạ dày ruột",
+    "if_all": [
+        "vomiting",
+        "sunken_eyes",
+        "dehydration",
+        "diarrhoea"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Gastroenteritis is an inflammation of the digestive tract, particularly the stomach, and large and small intestines. Viral and bacterial gastroenteritis are intestinal infections associated with symptoms of diarrhea , abdominal cramps, nausea , and vomiting .",
+    "advice": "- stop eating solid food for while\n- try taking small sips of water\n- rest\n- ease back into eating",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R118",
+    "disease": "heart_attack",
+    "name_vi": "Nhồi máu cơ tim",
+    "if_all": [
+        "vomiting",
+        "breathlessness",
+        "sweating",
+        "chest_pain"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "The death of heart muscle due to the loss of blood supply. The loss of blood supply is usually caused by a complete blockage of a coronary artery, one of the arteries that supplies blood to the heart muscle.",
+    "advice": "- call ambulance\n- chew or swallow asprin\n- keep calm",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R119",
+    "disease": "hepatitis_b",
+    "name_vi": "Viêm gan B",
+    "if_all": [
+        "itching",
+        "fatigue",
+        "lethargy",
+        "yellowish_skin",
+        "dark_urine",
+        "loss_of_appetite",
+        "abdominal_pain",
+        "yellow_urine",
+        "yellowing_of_eyes",
+        "malaise",
+        "receiving_blood_transfusion",
+        "receiving_unsterile_injections"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Hepatitis B is an infection of your liver. It can cause scarring of the organ, liver failure, and cancer. It can be fatal if it isn't treated. It's spread when people come in contact with the blood, open sores, or body fluids of someone who has the hepatitis B virus.",
+    "advice": "- consult nearest hospital\n- vaccination\n- eat healthy\n- medication",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R120",
+    "disease": "hepatitis_c",
+    "name_vi": "Viêm gan C",
+    "if_all": [
+        "fatigue",
+        "yellowish_skin",
+        "nausea",
+        "loss_of_appetite",
+        "yellowing_of_eyes",
+        "family_history"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Inflammation of the liver due to the hepatitis C virus (HCV), which is usually spread via blood transfusion (rare), hemodialysis, and needle sticks. The damage hepatitis C does to the liver can lead to cirrhosis and its complications as well as cancer.",
+    "advice": "- Consult nearest hospital\n- vaccination\n- eat healthy\n- medication",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R121",
+    "disease": "hepatitis_d",
+    "name_vi": "Viêm gan D",
+    "if_all": [
+        "joint_pain",
+        "vomiting",
+        "fatigue",
+        "yellowish_skin",
+        "dark_urine",
+        "nausea",
+        "loss_of_appetite",
+        "abdominal_pain",
+        "yellowing_of_eyes"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Hepatitis D, also known as the hepatitis delta virus, is an infection that causes the liver to become inflamed. This swelling can impair liver function and cause long-term liver problems, including liver scarring and cancer. The condition is caused by the hepatitis D virus (HDV).",
+    "advice": "- consult doctor\n- medication\n- eat healthy\n- follow up",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R122",
+    "disease": "hepatitis_e",
+    "name_vi": "Viêm gan E",
+    "if_all": [
+        "joint_pain",
+        "vomiting",
+        "fatigue",
+        "high_fever",
+        "yellowish_skin",
+        "dark_urine",
+        "nausea",
+        "loss_of_appetite",
+        "abdominal_pain",
+        "yellowing_of_eyes",
+        "acute_liver_failure",
+        "coma",
+        "stomach_bleeding"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "A rare form of liver inflammation caused by infection with the hepatitis E virus (HEV). It is transmitted via food or drink handled by an infected person or through infected water supplies in areas where fecal matter may get into the water. Hepatitis E does not cause chronic liver disease.",
+    "advice": "- stop alcohol consumption\n- rest\n- consult doctor\n- medication",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R123",
+    "disease": "hypertension_",
+    "name_vi": "Tăng huyết áp",
+    "if_all": [
+        "headache",
+        "chest_pain",
+        "dizziness",
+        "loss_of_balance",
+        "lack_of_concentration"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Chưa có mô tả chi tiết.",
+    "advice": "Cần gặp bác sĩ để tư vấn thêm.",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R124",
+    "disease": "hyperthyroidism",
+    "name_vi": "Cường giáp",
+    "if_all": [
+        "fatigue",
+        "mood_swings",
+        "weight_loss",
+        "restlessness",
+        "sweating",
+        "diarrhoea",
+        "fast_heart_rate",
+        "excessive_hunger",
+        "muscle_weakness",
+        "irritability",
+        "abnormal_menstruation"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Hyperthyroidism (overactive thyroid) occurs when your thyroid gland produces too much of the hormone thyroxine. Hyperthyroidism can accelerate your body's metabolism, causing unintentional weight loss and a rapid or irregular heartbeat.",
+    "advice": "- eat healthy\n- massage\n- use lemon balm\n- take radioactive iodine treatment",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R125",
+    "disease": "hypoglycemia",
+    "name_vi": "Hạ đường huyết",
+    "if_all": [
+        "vomiting",
+        "fatigue",
+        "anxiety",
+        "sweating",
+        "headache",
+        "nausea",
+        "blurred_and_distorted_vision",
+        "excessive_hunger",
+        "drying_and_tingling_lips",
+        "slurred_speech",
+        "irritability",
+        "palpitations"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Hypoglycemia is a condition in which your blood sugar (glucose) level is lower than normal. Glucose is your body's main energy source. Hypoglycemia is often related to diabetes treatment. But other drugs and a variety of conditions — many rare — can cause low blood sugar in people who don't have diabetes.",
+    "advice": "- lie down on side\n- check in pulse\n- drink sugary drinks\n- consult doctor",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R126",
+    "disease": "hypothyroidism",
+    "name_vi": "Suy giáp",
+    "if_all": [
+        "fatigue",
+        "weight_gain",
+        "cold_hands_and_feets",
+        "mood_swings",
+        "lethargy",
+        "dizziness",
+        "puffy_face_and_eyes",
+        "enlarged_thyroid",
+        "brittle_nails",
+        "swollen_extremeties",
+        "depression",
+        "irritability",
+        "abnormal_menstruation"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Hypothyroidism, also called underactive thyroid or low thyroid, is a disorder of the endocrine system in which the thyroid gland does not produce enough thyroid hormone.",
+    "advice": "- reduce stress\n- exercise\n- eat healthy\n- get proper sleep",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R127",
+    "disease": "impetigo",
+    "name_vi": "Bệnh chốc lở",
+    "if_all": [
+        "skin_rash",
+        "high_fever",
+        "blister",
+        "red_sore_around_nose",
+        "yellow_crust_ooze"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Impetigo (im-puh-TIE-go) is a common and highly contagious skin infection that mainly affects infants and children. Impetigo usually appears as red sores on the face, especially around a child's nose and mouth, and on hands and feet. The sores burst and develop honey-colored crusts.",
+    "advice": "- soak affected area in warm water\n- use antibiotics\n- remove scabs with wet compressed cloth\n- consult doctor",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R128",
+    "disease": "jaundice",
+    "name_vi": "Vàng da",
+    "if_all": [
+        "itching",
+        "vomiting",
+        "fatigue",
+        "weight_loss",
+        "high_fever",
+        "yellowish_skin",
+        "dark_urine",
+        "abdominal_pain"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Yellow staining of the skin and sclerae (the whites of the eyes) by abnormally high blood levels of the bile pigment bilirubin. The yellowing extends to other tissues and body fluids. Jaundice was once called the \"morbus regius\" (the regal disease) in the belief that only the touch of a king could cure it",
+    "advice": "- drink plenty of water\n- consume milk thistle\n- eat fruits and high fiberous food\n- medication",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R129",
+    "disease": "malaria",
+    "name_vi": "Sốt rét",
+    "if_all": [
+        "chills",
+        "vomiting",
+        "high_fever",
+        "sweating",
+        "headache",
+        "nausea",
+        "diarrhoea",
+        "muscle_pain"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "An infectious disease caused by protozoan parasites from the Plasmodium family that can be transmitted by the bite of the Anopheles mosquito or by a contaminated needle or transfusion. Falciparum malaria is the most deadly type.",
+    "advice": "- Consult nearest hospital\n- avoid oily food\n- avoid non veg food\n- keep mosquitos out",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R130",
+    "disease": "migraine",
+    "name_vi": "Đau nửa đầu (Migraine)",
+    "if_all": [
+        "acidity",
+        "indigestion",
+        "headache",
+        "blurred_and_distorted_vision",
+        "excessive_hunger",
+        "stiff_neck",
+        "depression",
+        "irritability",
+        "visual_disturbances"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "A migraine can cause severe throbbing pain or a pulsing sensation, usually on one side of the head. It's often accompanied by nausea, vomiting, and extreme sensitivity to light and sound. Migraine attacks can last for hours to days, and the pain can be so severe that it interferes with your daily activities.",
+    "advice": "- meditation\n- reduce stress\n- use poloroid glasses in sun\n- consult doctor",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R131",
+    "disease": "osteoarthristis",
+    "name_vi": "Viêm xương khớp",
+    "if_all": [
+        "joint_pain",
+        "neck_pain",
+        "knee_pain",
+        "hip_joint_pain",
+        "swelling_joints",
+        "painful_walking"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Osteoarthritis is the most common form of arthritis, affecting millions of people worldwide. It occurs when the protective cartilage that cushions the ends of your bones wears down over time.",
+    "advice": "- acetaminophen\n- consult nearest hospital\n- follow up\n- salt baths",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R132",
+    "disease": "paralysis_(brain_hemorrhage)",
+    "name_vi": "Liệt (xuất huyết não)",
+    "if_all": [
+        "vomiting",
+        "headache",
+        "weakness_of_one_body_side",
+        "altered_sensorium"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Intracerebral hemorrhage (ICH) is when blood suddenly bursts into brain tissue, causing damage to your brain. Symptoms usually appear suddenly during ICH. They include headache, weakness, confusion, and paralysis, particularly on one side of your body.",
+    "advice": "- massage\n- eat healthy\n- exercise\n- consult doctor",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R133",
+    "disease": "peptic_ulcer_diseae",
+    "name_vi": "Viêm loét dạ dày",
+    "if_all": [
+        "vomiting",
+        "indigestion",
+        "loss_of_appetite",
+        "abdominal_pain",
+        "passage_of_gases",
+        "internal_itching"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Peptic ulcer disease (PUD) is a break in the inner lining of the stomach, the first part of the small intestine, or sometimes the lower esophagus. An ulcer in the stomach is called a gastric ulcer, while one in the first part of the intestines is a duodenal ulcer.",
+    "advice": "- avoid fatty spicy food\n- consume probiotic food\n- eliminate milk\n- limit alcohol",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R134",
+    "disease": "pneumonia",
+    "name_vi": "Viêm phổi",
+    "if_all": [
+        "chills",
+        "fatigue",
+        "cough",
+        "high_fever",
+        "breathlessness",
+        "sweating",
+        "malaise",
+        "phlegm",
+        "chest_pain",
+        "fast_heart_rate",
+        "rusty_sputum"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Pneumonia is an infection in one or both lungs. Bacteria, viruses, and fungi cause it. The infection causes inflammation in the air sacs in your lungs, which are called alveoli. The alveoli fill with fluid or pus, making it difficult to breathe.",
+    "advice": "- consult doctor\n- medication\n- rest\n- follow up",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R135",
+    "disease": "psoriasis",
+    "name_vi": "Bệnh vẩy nến",
+    "if_all": [
+        "skin_rash",
+        "joint_pain",
+        "skin_peeling",
+        "silver_like_dusting",
+        "small_dents_in_nails",
+        "inflammatory_nails"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Psoriasis is a common skin disorder that forms thick, red, bumpy patches covered with silvery scales. They can pop up anywhere, but most appear on the scalp, elbows, knees, and lower back. Psoriasis can't be passed from person to person. It does sometimes happen in members of the same family.",
+    "advice": "- wash hands with warm soapy water\n- stop bleeding using pressure\n- consult doctor\n- salt baths",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R136",
+    "disease": "tuberculosis",
+    "name_vi": "Lao phổi",
+    "if_all": [
+        "chills",
+        "vomiting",
+        "fatigue",
+        "weight_loss",
+        "cough",
+        "high_fever",
+        "breathlessness",
+        "sweating",
+        "loss_of_appetite",
+        "mild_fever",
+        "yellowing_of_eyes",
+        "swelled_lymph_nodes",
+        "malaise",
+        "phlegm",
+        "chest_pain",
+        "blood_in_sputum"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Tuberculosis (TB) is an infectious disease usually caused by Mycobacterium tuberculosis (MTB) bacteria. Tuberculosis generally affects the lungs, but can also affect other parts of the body. Most infections show no symptoms, in which case it is known as latent tuberculosis.",
+    "advice": "- cover mouth\n- consult doctor\n- medication\n- rest",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R137",
+    "disease": "typhoid",
+    "name_vi": "Thương hàn",
+    "if_all": [
+        "chills",
+        "vomiting",
+        "fatigue",
+        "high_fever",
+        "headache",
+        "nausea",
+        "constipation",
+        "abdominal_pain",
+        "diarrhoea",
+        "toxic_look_(typhos)",
+        "belly_pain"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "An acute illness characterized by fever caused by infection with the bacterium Salmonella typhi. Typhoid fever has an insidious onset, with fever, headache, constipation, malaise, chills, and muscle pain. Diarrhea is uncommon, and vomiting is not usually severe.",
+    "advice": "- eat high calorie vegitables\n- antiboitic therapy\n- consult doctor\n- medication",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R138",
+    "disease": "urinary_tract_infection",
+    "name_vi": "Nhiễm trùng đường tiết niệu",
+    "if_all": [
+        "burning_micturition",
+        "bladder_discomfort",
+        "foul_smell_of urine",
+        "continuous_feel_of_urine"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Urinary tract infection: An infection of the kidney, ureter, bladder, or urethra. Abbreviated UTI. Not everyone with a UTI has symptoms, but common symptoms include a frequent urge to urinate and pain or burning when urinating.",
+    "advice": "- drink plenty of water\n- increase vitamin c intake\n- drink cranberry juice\n- take probiotics",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R139",
+    "disease": "varicose_veins",
+    "name_vi": "Suy giãn tĩnh mạch",
+    "if_all": [
+        "fatigue",
+        "cramps",
+        "bruising",
+        "obesity",
+        "swollen_legs",
+        "swollen_blood_vessels",
+        "prominent_veins_on_calf"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "A vein that has enlarged and twisted, often appearing as a bulging, blue blood vessel that is clearly visible through the skin. Varicose veins are most common in older adults, particularly women, and occur especially on the legs.",
+    "advice": "- lie down flat and raise the leg high\n- use oinments\n- use vein compression\n- dont stand still for long",
+    "severity": "medium",
+    "see_doctor": True
+},
+{
+    "id": "R140",
+    "disease": "hepatitis_a",
+    "name_vi": "Viêm gan A",
+    "if_all": [
+        "joint_pain",
+        "vomiting",
+        "yellowish_skin",
+        "dark_urine",
+        "nausea",
+        "loss_of_appetite",
+        "abdominal_pain",
+        "diarrhoea",
+        "mild_fever",
+        "yellowing_of_eyes",
+        "muscle_pain"
+    ],
+    "if_any": [],
+    "if_none": [],
+    "confidence": 0.85,
+    "explain": "Hepatitis A is a highly contagious liver infection caused by the hepatitis A virus. The virus is one of several types of hepatitis viruses that cause inflammation and affect your liver's ability to function.",
+    "advice": "- Consult nearest hospital\n- wash hands through\n- avoid fatty spicy food\n- medication",
+    "severity": "medium",
+    "see_doctor": True
+},
 ]
 
-
-# ─── HELPER FUNCTIONS ─────────────────────────────────────
-
 def get_all_rules():
-    """Trả về toàn bộ Knowledge Base."""
     return RULES
 
-
-def get_rule_by_id(rule_id: str):
-    """Tìm rule theo ID."""
+def get_rule_by_id(rule_id):
     for rule in RULES:
         if rule["id"] == rule_id:
             return rule
     return None
-
-
-def get_rules_by_severity(severity: str):
-    """Lấy tất cả rule theo mức độ nghiêm trọng."""
-    return [r for r in RULES if r["severity"] == severity]
