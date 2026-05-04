@@ -20,60 +20,15 @@ from nlp import normalize_symptom_list
 
 def _load_merged_rules() -> List[Dict]:
     """
-    Merge rules từ hai nguồn:
-    - rules.py     : sinh tự động từ Kaggle dataset (41 bệnh)
-    - rules1.py    : viết tay, chất lượng cao (19 bệnh)
-
-    Chiến lược:
-    1. Load rules1 (manual) trước — ưu tiên cao hơn.
-    2. Load rules  (Kaggle) sau  — bổ sung bệnh chưa có trong rules1.
-    3. Normalize symptom names trong rules Kaggle → NLP codes.
-    4. Bỏ qua rule Kaggle nếu disease key đã tồn tại trong rules1.
+    Load rule trực tiếp từ file rules_vie.py
+    (File này đã được tối ưu, chuẩn hóa NLP và dịch 100% tiếng Việt)
     """
-    merged: List[Dict] = []
-    seen_diseases = set()
-
-    # ── Bước 1: rules1.py (manual curated) ──────────────
     try:
-        from rules1 import get_all_rules as get_rules1
-        for rule in get_rules1():
-            disease_key = rule["disease"].lower().strip()
-            merged.append(rule)
-            seen_diseases.add(disease_key)
+        from rules_vie import get_all_rules
+        return get_all_rules()
     except ImportError:
-        pass
-
-    # ── Bước 2: rules.py (Kaggle generated) ─────────────
-    try:
-        from rules import get_all_rules as get_rules_kaggle
-        for rule in get_rules_kaggle():
-            disease_key = rule["disease"].lower().strip()
-            if disease_key in seen_diseases:
-                continue  # đã có rule tốt hơn từ rules1
-
-            # Normalize symptom names trong rule Kaggle
-            rule = _normalize_rule(rule)
-            merged.append(rule)
-            seen_diseases.add(disease_key)
-    except ImportError:
-        pass
-
-    return merged
-
-
-def _normalize_rule(rule: Dict) -> Dict:
-    """
-    Chuẩn hóa tên triệu chứng trong một rule Kaggle:
-    yellowish_skin → jaundice, breathlessness → shortness_of_breath, v.v.
-    Trả về rule mới (không sửa in-place).
-    """
-    return {
-        **rule,
-        "if_all":  normalize_symptom_list(rule.get("if_all", [])),
-        "if_any":  normalize_symptom_list(rule.get("if_any", [])),
-        "if_none": normalize_symptom_list(rule.get("if_none", [])),
-    }
-
+        print("Lỗi: Không tìm thấy file rules_vie.py")
+        return []
 
 # Cache rules tại module load time
 _RULES_CACHE: List[Dict] = []
