@@ -1,12 +1,6 @@
 """
-file app.py
 =============================================================
-  FLASK APP v4.0 — Medical Chatbot (PURE ML/RULES ENGINE)
-=============================================================
-  - Đã GỠ BỎ hoàn toàn thư viện google-generativeai, llm.py
-  - Tốc độ phản hồi: Tức thời (Instant Streaming)
-  - Phù hợp 100% với môi trường Vercel (Không bị Timeout)
-=============================================================
+  FLASK APP
 """
 
 from flask import Flask, render_template, request, jsonify, session, Response, stream_with_context

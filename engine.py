@@ -1,15 +1,7 @@
 """
 file engine.py
 =============================================================
-  INFERENCE ENGINE v4.0 — Pure Machine Learning / Rules
-=============================================================
-  Changes from v3.0:
-  [+] Tự động MERGE rules từ cả rules.py (Kaggle dataset)
-      lẫn rules1.py (manual curated) — không trùng ID
-  [+] normalize_rule_symptoms(): chuẩn hóa tên triệu chứng
-      trong rules Kaggle → NLP codes trước khi so sánh
-  [+] Ưu tiên rules1.py (manual) nếu cùng disease key
-  Toàn bộ thresholds và logic scoring v3.0 giữ nguyên.
+  INFERENCE ENGINE
 =============================================================
 """
 

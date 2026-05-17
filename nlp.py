@@ -1,15 +1,7 @@
 """
 file nlp.py
 =============================================================
-  NLP MODULE v3.0 — Medical Chatbot  (FULL VIETNAMESE COVERAGE)
-=============================================================
-  Changes from v2.1:
-  [+] Mở rộng SYMPTOM_KEYWORDS_RAW bao phủ TẤT CẢ triệu chứng
-      từ Kaggle dataset (rules_generated.py / rules.py)
-  [+] Bổ sung SYMPTOM_ALIASES để chuẩn hóa tên triệu chứng
-      (Kaggle symptom name → NLP code)
-  [+] normalize_symptoms() để engine dùng khi match rule
-  Toàn bộ logic v2.1 giữ nguyên bên dưới.
+  NLP MODULE
 =============================================================
 """
 
@@ -215,14 +207,14 @@ def normalize_symptom_list(symptoms: list) -> list:
     return result
 
 
-# ─── NLP v2.1 — HYBRID (giữ nguyên) ──────────────────────
+# ─── NLP HYBRID (giữ nguyên) ──────────────────────
 
 def extract_symptoms_hybrid(text: str) -> dict:
     return extract_symptoms_with_context(text)
 
 
 # =============================================================
-#  ORIGINAL nlp.py v2.0 — MỞ RỘNG v3.0
+#  ORIGINAL nlp.py
 # =============================================================
 
 import re
@@ -298,7 +290,7 @@ DISEASE_INFERENCE_CHAINS: Dict[str, List[str]] = {
 }
 
 
-# ─── SYMPTOM KEYWORD DICTIONARY (v3.0 — đầy đủ) ──────────
+# ─── SYMPTOM KEYWORD DICTIONARY ──────────
 
 SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
 
@@ -653,7 +645,7 @@ SYMPTOM_KEYWORDS_RAW: Dict[str, List[str]] = {
 }
 
 
-# ─── DISPLAY NAMES (v3.0 — đầy đủ) ────────────────────────
+# ─── DISPLAY NAMES ────────────────────────
 SYMPTOM_DISPLAY: Dict[str, str] = {
     # Hô hấp
     "fever":               "Sốt",
