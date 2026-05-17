@@ -21,6 +21,7 @@ from nlp import (
     symptoms_to_vietnamese,
     normalize_text,
 )
+
 from engine import run_inference, build_response_text
 
 app = Flask(__name__)
