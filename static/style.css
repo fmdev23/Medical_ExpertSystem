@@ -1,34 +1,32 @@
 /* ═══════════════════════════════════════════════════════════
-   STYLE.CSS — MedBot AI Medical Chatbot
-   Theme: Clinical Cool · Light Mode · Full Mobile Optimized
+   STYLE.CSS — Y-Med Rule-Based Medical Expert System
+   Theme: Clinical Neutral · Light Mode · Full Mobile Optimized
    Font: Plus Jakarta Sans
-   Palette: Cool Blue (#d7efff) + Sky + White
+   Palette: Neutral slate + medical blue + teal + safety accents
 ═══════════════════════════════════════════════════════════ */
 
 /* ── Design Tokens ──────────────────────────────────────── */
 :root {
   /* ── Backgrounds ── */
-  --bg:           #e8f4fd;
-  --bg-mesh:      radial-gradient(ellipse 80% 60% at 20% 0%, #d7efff 0%, transparent 60%),
-                  radial-gradient(ellipse 60% 50% at 80% 100%, #cce9fb 0%, transparent 60%),
-                  #e8f4fd;
+  --bg:           #f3f7fb;
+  --bg-mesh:      linear-gradient(180deg, #f8fbfd 0%, #eef6f6 100%);
   --surface:      #ffffff;
-  --surface-2:    #f4f9fe;
-  --surface-3:    #eaf4fc;
+  --surface-2:    #f7fafc;
+  --surface-3:    #eef7f3;
   --bg-bubble:    #f8fafc;
 
   /* ── Borders ── */
-  --border:       #c9e3f5;
-  --border-soft:  #dceef9;
-  --border-focus: #56aee8;
+  --border:       #d8e2ea;
+  --border-soft:  #e7edf2;
+  --border-focus: #2f9cb3;
 
   /* ── Core accent ── */
-  --accent:          #1a8fd1;
-  --accent-light:    #d7efff;
-  --accent-lighter:  #eaf6ff;
-  --accent-dark:     #0d6fa8;
-  --accent-grad:     linear-gradient(135deg, #38b6f5 0%, #1a8fd1 100%);
-  --accent-grad-h:   linear-gradient(135deg, #52c3ff 0%, #2099e0 100%);
+  --accent:          #1877a8;
+  --accent-light:    #e4f4f7;
+  --accent-lighter:  #f0f8f8;
+  --accent-dark:     #0f5d73;
+  --accent-grad:     linear-gradient(135deg, #1877a8 0%, #0d9488 100%);
+  --accent-grad-h:   linear-gradient(135deg, #1f8fc7 0%, #10a79a 100%);
 
   /* ── Semantic ── */
   --green:     #16a34a;
@@ -39,17 +37,17 @@
   --red-bg:    #ffe4e6;
 
   /* ── Text ── */
-  --text-primary:   #0a1929;
-  --text-secondary: #3a5a78;
-  --text-muted:     #7aa4c0;
+  --text-primary:   #172033;
+  --text-secondary: #506174;
+  --text-muted:     #7b8fa1;
   --text-on-accent: #ffffff;
 
   /* ── Shadows ── */
-  --shadow-xs:  0 1px 2px rgba(10,55,90,.05);
-  --shadow-sm:  0 2px 6px rgba(10,55,90,.06), 0 1px 2px rgba(10,55,90,.04);
-  --shadow-md:  0 4px 14px rgba(10,55,90,.08), 0 2px 6px rgba(10,55,90,.04);
-  --shadow-lg:  0 12px 32px rgba(10,55,90,.10), 0 4px 12px rgba(10,55,90,.06);
-  --shadow-btn: 0 4px 12px rgba(26,143,209,.30);
+  --shadow-xs:  0 1px 2px rgba(15,35,55,.05);
+  --shadow-sm:  0 2px 8px rgba(15,35,55,.07), 0 1px 2px rgba(15,35,55,.04);
+  --shadow-md:  0 6px 18px rgba(15,35,55,.09), 0 2px 6px rgba(15,35,55,.04);
+  --shadow-lg:  0 14px 36px rgba(15,35,55,.12), 0 4px 12px rgba(15,35,55,.06);
+  --shadow-btn: 0 4px 12px rgba(13,148,136,.28);
 
   /* ── Layout ── */
   --sidebar-w:      295px;
@@ -59,10 +57,10 @@
 
   /* ── Radius ── */
   --r-xs:  6px;
-  --r-sm:  10px;
-  --r-md:  14px;
-  --r-lg:  20px;
-  --r-xl:  28px;
+  --r-sm:  8px;
+  --r-md:  8px;
+  --r-lg:  12px;
+  --r-xl:  16px;
   --r-pill: 999px;
 
   /* ── Transitions ── */
@@ -70,9 +68,9 @@
   --ease-bounce: cubic-bezier(.34, 1.56, .64, 1);
 
   /* ── Logo: yy.svg gốc màu #79c4fb, tỉ lệ 128.14×107.12mm ≈ 1.197:1 ── */
-  /* filter để kéo #79c4fb → gần accent #1a8fd1 (đậm + bão hoà hơn)       */
+  /* filter để kéo #79c4fb gần bảng màu y khoa hiện tại (đậm + bão hoà hơn) */
   --logo-filter: brightness(0.82) saturate(1.4) contrast(1.05);
-  --logo-shadow: drop-shadow(0 2px 6px rgba(26,143,209,.30));
+  --logo-shadow: drop-shadow(0 2px 6px rgba(13,148,136,.24));
   --logo-ratio:  1.197;   /* width / height */
 }
 
@@ -433,8 +431,8 @@ body.sidebar-active {
   flex-shrink: 0;
 }
 
-.dot-blue  { background: var(--accent);  box-shadow: 0 0 0 3px rgba(26,143,209,.15); }
-.dot-cyan  { background: #06b6d4;        box-shadow: 0 0 0 3px rgba(6,182,212,.15);  }
+.dot-blue  { background: var(--accent);  box-shadow: 0 0 0 3px rgba(24,119,168,.14); }
+.dot-cyan  { background: #2f9cb3;        box-shadow: 0 0 0 3px rgba(47,156,179,.14); }
 .dot-teal  { background: #0d9488;        box-shadow: 0 0 0 3px rgba(13,148,136,.15); }
 
 /* ── Symptom tags ───────────────────────────────────────── */
@@ -639,7 +637,7 @@ body.sidebar-active {
 
 /* ── Sidebar flash animation ────────────────────────────── */
 @keyframes sidebarFlash {
-  0%   { background: rgba(26,143,209,.08); }
+  0%   { background: rgba(13,148,136,.08); }
   100% { background: transparent; }
 }
 
@@ -708,7 +706,7 @@ body.sidebar-active {
 /* Container header icon — nền trắng + viền accent */
 .header-icon {
   background: rgba(255,255,255,.9) !important;
-  box-shadow: 0 2px 8px rgba(26,143,209,.15) !important;
+  box-shadow: 0 2px 8px rgba(13,148,136,.14) !important;
   border-radius: 50% !important;
   /* Tỉ lệ SVG 1.197:1 → width=40px, height=33px ≈ 34px */
   width: 40px !important;
@@ -778,9 +776,7 @@ body.sidebar-active {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
-  background-image:
-    radial-gradient(circle at 15% 20%, rgba(215,239,255,.55) 0%, transparent 45%),
-    radial-gradient(circle at 85% 80%, rgba(204,233,251,.40) 0%, transparent 40%);
+  background-image: linear-gradient(180deg, rgba(255,255,255,.62), rgba(240,248,248,.86));
 }
 
 .messages::-webkit-scrollbar { width: 5px; }
@@ -858,7 +854,7 @@ body.sidebar-active {
   background: var(--accent-grad);
   color: #fff;
   border-bottom-right-radius: var(--r-xs);
-  box-shadow: 0 4px 14px rgba(26,143,209,.28);
+  box-shadow: 0 4px 14px rgba(13,148,136,.26);
 }
 
 .bot-bubble p       { margin-bottom: 7px; }
@@ -976,7 +972,7 @@ body.sidebar-active {
 
 .input-wrapper:focus-within {
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 4px rgba(26,143,209,.10), var(--shadow-md);
+  box-shadow: 0 0 0 4px rgba(13,148,136,.10), var(--shadow-md);
 }
 
 .chat-input {
@@ -1021,7 +1017,7 @@ body.sidebar-active {
 @media (hover: hover) {
   .send-btn:hover:not(:disabled) {
     background: var(--accent-grad-h);
-    box-shadow: 0 6px 16px rgba(26,143,209,.40);
+    box-shadow: 0 6px 16px rgba(13,148,136,.34);
   }
 }
 
@@ -1174,7 +1170,7 @@ body.sidebar-active {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   AI LOADING CARD
+   ANALYSIS LOADING CARD
 ═══════════════════════════════════════════════════════════ */
 .ai-loading-card {
   display: none;
@@ -1211,7 +1207,7 @@ body.sidebar-active {
 
 .loading-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #1a8fd1, #06b6d4, #1a8fd1);
+  background: linear-gradient(90deg, #1877a8, #0d9488, #1877a8);
   background-size: 200% 100%;
   border-radius: 0 2px 2px 0;
   width: 0%;
@@ -1283,7 +1279,7 @@ body.sidebar-active {
 .health-tip-wrap {
   border-top: 1px solid var(--border-soft);
   padding: 11px 18px 13px;
-  background: linear-gradient(135deg, rgba(26,143,209,.04) 0%, rgba(6,182,212,.04) 100%);
+  background: linear-gradient(135deg, rgba(24,119,168,.04) 0%, rgba(13,148,136,.05) 100%);
 }
 
 .tip-header {
@@ -1377,7 +1373,7 @@ body.sidebar-active {
    Chiến lược màu sắc:
    · #79c4fb là xanh nhạt khá đẹp trên nền trắng → giữ nguyên
    · Áp dụng brightness + saturate nhẹ để đậm hơn, đồng nhất
-     với --accent (#1a8fd1) mà không cần hue-rotate phức tạp
+     với bảng màu hiện tại mà không cần hue-rotate phức tạp
    · drop-shadow tạo chiều sâu tự nhiên
 ═══════════════════════════════════════════════════════════ */
 
@@ -1390,12 +1386,12 @@ body.sidebar-active {
   max-height: 44px;
   object-fit: contain;
   display: block;
-  /* #79c4fb → kéo xuống gần #1a8fd1: tối hơn + bão hoà hơn  */
+  /* #79c4fb → kéo xuống gần màu nhấn hiện tại: tối hơn + bão hoà hơn */
   filter:
     brightness(0.80)
     saturate(1.45)
     contrast(1.08)
-    drop-shadow(0 2px 5px rgba(26,143,209,.28));
+    drop-shadow(0 2px 5px rgba(13,148,136,.24));
 }
 
 /* Mini sidebar: 40 × 34px container */
@@ -1418,7 +1414,7 @@ body.sidebar-active {
     brightness(0.82)
     saturate(1.35)
     contrast(1.05)
-    drop-shadow(0 1px 3px rgba(26,143,209,.20));
+    drop-shadow(0 1px 3px rgba(13,148,136,.18));
 }
 
 /* Mobile: header-icon container nhỏ hơn */

@@ -1,5 +1,4 @@
 """
-=============================================================
   FLASK APP
 """
 
@@ -26,9 +25,9 @@ app.secret_key = os.environ.get(
 
 # ─── MESSAGES ─────────────────────────────────────────────
 WELCOME_MESSAGE = (
-    "Xin chào! Tôi là **Y-AI** — hệ thống chuyên gia y tế.\n\n"
-    "Tôi sử dụng mô hình học máy để phân tích và cung cấp chẩn đoán "
-    "sơ bộ dựa trên hàng ngàn hồ sơ bệnh án.\n\n"
+    "Xin chào! Tôi là **Y-AI** — hệ chuyên gia hỗ trợ đối chiếu triệu chứng.\n\n"
+    "Tôi sử dụng tập luật suy diễn y khoa và nhận diện từ khóa triệu chứng "
+    "để đưa ra gợi ý tham khảo ban đầu.\n\n"
     "📝 Hãy kể cho tôi nghe bạn đang có những triệu chứng gì?\n"
     "Ví dụ: _'Tôi bị sốt cao, đau đầu và nổi mẩn đỏ'_\n\n"
     "💡 _Bạn cũng có thể cho tôi biết triệu chứng bạn KHÔNG có, "
@@ -188,7 +187,7 @@ def chat():
 
         if intent == "help":
             save_session(conv)
-            return jsonify({"reply": "**Cách sử dụng Y-AI:**\n\n- Mô tả triệu chứng bạn đang gặp\n- Gõ **reset** để bắt đầu lại từ đầu", "symptoms": [], "results": [], "intent": "help", "turn": conv["turn_count"]})
+            return jsonify({"reply": "**Cách sử dụng Y-AI:**\n\n- Mô tả triệu chứng bạn đang gặp\n- Có thể nêu triệu chứng không có, ví dụ: **không sốt**, **không ho**\n- Gõ **reset** để bắt đầu lại từ đầu", "symptoms": [], "results": [], "intent": "help", "turn": conv["turn_count"]})
 
         # STEP 1 — NLP
         nlp_result = extract_symptoms_hybrid(message)
@@ -241,7 +240,7 @@ def chat():
                 "turn":         conv["turn_count"],
             })
 
-            yield _sse_progress("Đang khai phá dữ liệu bằng Học máy…", 50)
+            yield _sse_progress("Đang đối chiếu tập luật y khoa…", 50)
 
             full_reply = build_response_text(
                 inference_result = inference,
@@ -272,7 +271,7 @@ def status():
     return jsonify({
         "status":       "running",
         "version":      "4.0",
-        "backend":      "Machine Learning (Data Mining Rules)",
+        "backend":      "Rule-based medical expert system",
         "session_type": "cookie",
         "time":         datetime.now().isoformat(),
     })
@@ -281,9 +280,9 @@ def status():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     print("=" * 60)
-    print("  Y-AI v4.0 — Pure ML & Rules Engine")
+    print("  Y-AI v4.0 — Rule-based Medical Expert System")
     print(f"  PORT    : {port}")
-    print("  BACKEND : Machine Learning (Decision Rules)")
+    print("  BACKEND : NLP Keyword Matching + Decision Rules")
     print(f"  URL     : http://127.0.0.1:{port}")
     print("=" * 60)
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

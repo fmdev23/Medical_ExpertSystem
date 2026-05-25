@@ -6,7 +6,7 @@ file engine.py
 """
 
 from typing import List, Dict, Any, Optional
-from nlp import normalize_symptom_list
+from nlp import symptoms_to_vietnamese
 
 # ─── LOAD VÀ MERGE RULES ─────────────────────────────────
 
@@ -238,6 +238,12 @@ def _format_advice(advice: str) -> str:
     return "\n".join(formatted)
 
 
+def _format_symptom_evidence(symptoms: List[str]) -> str:
+    if not symptoms:
+        return ""
+    return ", ".join(symptoms_to_vietnamese(symptoms))
+
+
 def build_response_text(
     inference_result: Dict,
     symptoms:         List[str],
@@ -268,9 +274,9 @@ def build_response_text(
     lines.append("")
 
     if len(results) == 1:
-        lines.append("Dựa trên phân tích Học Máy, có khả năng bạn đang mắc:")
+        lines.append("Dựa trên tập luật suy diễn y khoa, khả năng phù hợp nhất là:")
     else:
-        lines.append("Dựa trên phân tích Học Máy, một số khả năng cần xem xét:")
+        lines.append("Dựa trên tập luật suy diễn y khoa, một số khả năng cần xem xét:")
 
     lines.append("")
 
@@ -278,14 +284,21 @@ def build_response_text(
         pct   = int(r["confidence"] * 100)
         label = format_confidence_label(r["confidence"])
         sev   = severity_label(r["severity"])
-        lines.append(f"**{i}. {r['name_vi']}** — {label} ({pct}%) | Mức độ: {sev}")
-        if r.get("explain"):
-            lines.append(f"  _{r['explain']}_")
+        lines.append(f"**{i}. {r['name_vi']}** — {label} ({pct}% mức phù hợp) | Mức độ: {sev}")
+
+        evidence = _format_symptom_evidence(r.get("supporting", []))
+        if evidence:
+            lines.append(f"  Dấu hiệu đã khớp: {evidence}.")
+
+        missing = _format_symptom_evidence(r.get("missing_all", []))
+        if missing:
+            lines.append(f"  Cần hỏi thêm/kiểm tra thêm: {missing}.")
+
         lines.append("")
 
     if uncertain and len(results) >= 2:
         lines.append(
-            f"> ⚠️ Hai khả năng đầu có độ tin cậy gần nhau "
+            f"> ⚠️ Hai khả năng đầu có mức phù hợp gần nhau "
             f"({int(results[0]['confidence']*100)}% vs {int(results[1]['confidence']*100)}%). "
             f"Cần thêm thông tin để phân biệt chính xác hơn."
         )
@@ -306,8 +319,8 @@ def build_response_text(
 
     lines.append("")
     lines.append(
-        "⚕️ _Lưu ý: Đây là kết quả từ mô hình Học Máy dựa trên dữ liệu lâm sàng, "
-        "không thay thế chẩn đoán của bác sĩ._"
+        "⚕️ _Lưu ý: Đây là kết quả tham khảo từ hệ chuyên gia dựa trên luật, "
+        "không phải hệ thống tự học và không thay thế chẩn đoán của bác sĩ._"
     )
 
     return "\n".join(lines)
